@@ -1,0 +1,60 @@
+name: Feature request
+description: Propose a new command, backend, or capability
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a feature request, search open issues to avoid duplicates.
+        Check the [roadmap](../blob/main/KBVC_OVERVIEW.md) — the feature may already be planned.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the limitation or missing capability in concrete terms.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like KBVC to behave? Include CLI sketch if relevant.
+      placeholder: |
+        kbvc ask "Which KOs are redundant?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you considered and why you prefer this one.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      options:
+        - Core version control
+        - Knowledge graph
+        - Retrieval / GraphRAG
+        - Ingestion pipeline
+        - Backend / VSAL
+        - Provenance & audit
+        - Maintenance (gc / migrate / sync)
+        - Prompt versioning
+        - Remote sync
+        - Python SDK
+        - CI / GitHub Actions
+        - Web UI
+        - LLM framework integration
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

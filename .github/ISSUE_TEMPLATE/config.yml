@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/kbvc-ai/kbvc/blob/main/KBVC_DOCS.md
+    about: Full command reference and architecture docs
+  - name: Discussions
+    url: https://github.com/kbvc-ai/kbvc/discussions
+    about: Questions, ideas, and community chat

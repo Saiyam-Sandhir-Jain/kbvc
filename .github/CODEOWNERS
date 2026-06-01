@@ -1,0 +1,8 @@
+# CODEOWNERS
+# These owners are automatically requested for review on every PR.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @Saiyam-Sandhir-Jain
+
+# Backends require maintainer review
+src/kbvc/backends/ @Saiyam-Sandhir-Jain

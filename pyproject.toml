@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=60", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kbvc"
+version = "0.1.0"
+description = "Git-native Knowledge Infrastructure Layer for AI systems. Version control, audit trails, semantic versioning, and reproducibility for RAG pipelines"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Saiyam Jain", email = "saiyam.sandhir.jain@gmail.com" },
+]
+keywords = [
+    "rag",                      # retrieval-augmented generation
+    "knowledge-infrastructure", # the core value prop
+    "vector-database",          # storage abstraction layer
+    "embeddings",               # multiple providers
+    "knowledge-base",           # organized docs/KOs
+    "version-control",          # git-like commits
+    "knowledge-graph",          # relations & lineage
+    "llm",                       # for LLM applications
+    "reproducibility",          # audit trails
+    "semantic-versioning",      # chunk hashes, commit IDs
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Version Control",
+]
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+openai    = ["openai>=1.0"]
+gemini    = ["google-genai>=0.1"]
+ollama    = ["ollama>=0.2"]
+hf        = ["sentence-transformers>=2.0"]
+pgvector  = ["psycopg2-binary>=2.9", "pgvector>=0.2"]
+qdrant    = ["qdrant-client>=1.7"]
+pinecone  = ["pinecone-client>=3.0"]
+chroma    = ["chromadb>=0.4"]
+dev       = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.urls]
+Homepage      = "https://github.com/Saiyam-Sandhir-Jain/kbvc"
+Documentation = "https://github.com/Saiyam-Sandhir-Jain/kbvc/blob/main/KBVC_DOCS.md"
+Repository    = "https://github.com/Saiyam-Sandhir-Jain/kbvc"
+Issues        = "https://github.com/Saiyam-Sandhir-Jain/kbvc/issues"
+Changelog     = "https://github.com/Saiyam-Sandhir-Jain/kbvc/blob/main/CHANGELOG.md"
+
+[project.scripts]
+kbvc = "kbvc.cli:main"
+
+[tool.setuptools.packages.find]
+where   = ["src"]
+include = ["kbvc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
