@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kbvc"
 version = "0.1.0"
-description = "Git-native Knowledge Infrastructure Layer for AI systems. Version control, audit trails, semantic versioning, and reproducibility for RAG pipelines"
+description = "Knowledge Operating System for AI/RAG — version control, semantic graph, full audit trails, and reproducible deployment for knowledge bases"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
@@ -40,6 +40,7 @@ classifiers = [
 dependencies = [
     "click>=8.0",
     "pyyaml>=6.0",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -51,7 +52,15 @@ pgvector  = ["psycopg2-binary>=2.9", "pgvector>=0.2"]
 qdrant    = ["qdrant-client>=1.7"]
 pinecone  = ["pinecone-client>=3.0"]
 chroma    = ["chromadb>=0.4"]
+lancedb   = ["lancedb>=0.5", "pyarrow>=14.0"]
 dev       = ["pytest>=7.0", "pytest-cov>=4.0"]
+all       = [
+    "openai>=1.0",
+    "qdrant-client>=1.7",
+    "chromadb>=0.4",
+    "lancedb>=0.5",
+    "pyarrow>=14.0",
+]
 
 [project.urls]
 Homepage      = "https://github.com/Saiyam-Sandhir-Jain/kbvc"

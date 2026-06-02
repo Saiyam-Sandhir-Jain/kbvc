@@ -4,38 +4,40 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-*.egg
 *.egg-info/
 dist/
 build/
+*.egg
 .eggs/
-pip-wheel-metadata/
 *.whl
 
-# Virtual environments
+# Virtual envs
 .venv/
 venv/
 env/
-.env
+.env/
+
+# KBVC sensitive config (NEVER commit this — it contains API keys)
+.kbvc/config
+
+# Local vector DB data (commit kbvc.lock, not the data itself)
+chroma_db/
+kbvc_lance/
+*.lance/
 
 # Testing
 .pytest_cache/
 .coverage
 coverage.xml
 htmlcov/
-.tox/
 
-# KBVC secrets (never commit API keys)
-.kbvc/secrets
-.kbvc/config.local
-
-# IDE
-.vscode/
+# IDEs
 .idea/
+.vscode/
 *.swp
 *.swo
 .DS_Store
 
-# Type checking
-.mypy_cache/
-.pyright/
+# Build artifacts
+*.so
+*.dylib

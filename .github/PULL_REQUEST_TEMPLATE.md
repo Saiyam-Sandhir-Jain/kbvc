@@ -1,26 +1,49 @@
 ## Summary
 
-<!-- One paragraph describing what this PR does and why. -->
+<!-- Describe the purpose of this PR in 1-3 sentences. -->
 
-## Type of change
+## Related Issue
+
+Fixes #<!-- issue number -->
+
+## Type of Change
 
 - [ ] Bug fix (non-breaking)
 - [ ] New feature (non-breaking)
-- [ ] Breaking change (changes an existing interface or behaviour)
-- [ ] Documentation / tests only
+- [ ] Breaking change (fixes or features that cause existing functionality to change)
+- [ ] Documentation update
+- [ ] Refactor / cleanup
+- [ ] CI / tooling
 
-## Related issues
+## Changes Made
 
-Closes #
+<!-- List the key changes. Be specific: what files changed and why. -->
+
+- 
+- 
+
+## Testing
+
+<!-- Describe how you tested this change. -->
+
+- [ ] I ran the existing test suite (`pytest tests/ -v`) and all tests pass
+- [ ] I added new tests for the new functionality
+- [ ] I tested manually with a real KBVC repo
 
 ## Checklist
 
-- [ ] Tests added or updated for every changed behaviour
-- [ ] `pytest tests/` passes locally
-- [ ] `kbvc --help` output is accurate for any new/changed commands
-- [ ] CHANGELOG.md updated under `[Unreleased]`
-- [ ] No API keys or secrets in the diff
+- [ ] Code follows the existing project style (no unnecessary reformatting)
+- [ ] Docstrings are updated for any changed functions
+- [ ] `CHANGELOG.md` is updated under `[Unreleased]`
+- [ ] New CLI commands include a `--help` docstring with examples
+- [ ] No API keys, tokens, or secrets are committed
+- [ ] `pyproject.toml` version is **not** bumped (maintainer does releases)
 
-## Testing notes
+## Screenshots / Output
 
-<!-- How to manually verify this change, if applicable. -->
+<!-- If this adds or changes CLI output, paste a sample here. -->
+
+```
+$ kbvc <your-command>
+...
+```

@@ -87,3 +87,37 @@ class ChromaBackend(VectorDBBackend):
     def from_config(cls, config: dict) -> ChromaBackend:
         path = config.get("vectordb.url", "./chroma_db")
         return cls(path=path)
+
+    def initialize_schema(self, collection: str, dimensions: int) -> None:
+        """Idempotently create or verify the Chroma collection."""
+        try:
+            self._client.get_collection(collection)
+        except Exception:
+            self._client.create_collection(
+                name=collection,
+                metadata={"hnsw:space": "cosine"},
+            )
+
+    def export_chunks(self, collection: str) -> list:
+        """Export all documents from a Chroma collection as ChunkRecords."""
+        from kbvc.backends.vectordb import ChunkRecord
+        col = self._get_collection(collection)
+        result = col.get(include=["embeddings", "metadatas"])
+        records = []
+        for i, doc_id in enumerate(result["ids"]):
+            meta = (result["metadatas"] or [])[i] or {}
+            embedding = (result["embeddings"] or [])[i] if result.get("embeddings") else []
+            records.append(ChunkRecord(
+                vector_id=doc_id,
+                branch=meta.get("branch", ""),
+                ko_id=meta.get("ko_id", ""),
+                ko_version=int(meta.get("ko_version", 0)),
+                chunk_index=int(meta.get("chunk_index", 0)),
+                chunk_hash=meta.get("chunk_hash", ""),
+                embedding=list(embedding),
+                metadata={k: v for k, v in meta.items()
+                          if k not in ("branch", "ko_id", "ko_version",
+                                       "chunk_index", "chunk_hash", "created_at")},
+                created_at=meta.get("created_at", ""),
+            ))
+        return records

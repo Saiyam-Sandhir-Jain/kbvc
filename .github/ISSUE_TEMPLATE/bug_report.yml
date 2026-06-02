@@ -1,82 +1,101 @@
-name: Bug report
-description: Something is broken or behaving unexpectedly
-labels: [bug]
+name: Bug Report
+description: File a bug report for KBVC
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees: []
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report a bug. Please fill in as much detail as you can.
+        Thanks for taking the time to fill out this bug report!
+        Please provide as much detail as possible so we can reproduce and fix it.
+
+  - type: input
+    id: kbvc_version
+    attributes:
+      label: KBVC Version
+      description: Run `kbvc --version` and paste the output
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python Version
+      description: Run `python --version`
+      placeholder: "3.11.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: embed_backend
+    attributes:
+      label: Embedding Backend
+      options:
+        - openai
+        - gemini
+        - ollama
+        - huggingface
+        - N/A
+    validations:
+      required: false
+
+  - type: dropdown
+    id: vectordb_backend
+    attributes:
+      label: Vector DB Backend
+      options:
+        - qdrant
+        - pgvector
+        - chroma
+        - pinecone
+        - lancedb
+        - N/A
+    validations:
+      required: false
 
   - type: textarea
     id: description
     attributes:
-      label: What happened?
-      description: A clear description of the bug.
+      label: Describe the Bug
+      description: A clear and concise description of the bug.
     validations:
       required: true
 
   - type: textarea
-    id: steps
+    id: reproduction
     attributes:
-      label: Steps to reproduce
-      description: Commands or code to reproduce the issue.
+      label: Steps to Reproduce
+      description: |
+        Minimal steps to reproduce. Include your KO frontmatter if relevant.
       placeholder: |
-        1. kbvc init
-        2. kbvc add myfile.md
-        3. kbvc commit -m "test"
-        4. Error appears
+        1. `kbvc init`
+        2. `kbvc add my-doc.md`
+        3. `kbvc commit -m "test"`
+        4. ...
     validations:
       required: true
 
   - type: textarea
     id: expected
     attributes:
-      label: Expected behaviour
+      label: Expected Behavior
+      description: What did you expect to happen?
     validations:
       required: true
 
   - type: textarea
     id: actual
     attributes:
-      label: Actual behaviour (paste full output / traceback)
+      label: Actual Behavior / Error
+      description: Paste the full error message or unexpected output.
       render: shell
     validations:
       required: true
 
-  - type: input
-    id: version
-    attributes:
-      label: KBVC version
-      placeholder: "0.1.0  (run: kbvc --version)"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: python
-    attributes:
-      label: Python version
-      options: ["3.9", "3.10", "3.11", "3.12", "other"]
-    validations:
-      required: true
-
-  - type: dropdown
-    id: backends
-    attributes:
-      label: Backends in use (select all that apply)
-      multiple: true
-      options:
-        - OpenAI (embed)
-        - Gemini (embed)
-        - Ollama (embed)
-        - HuggingFace (embed)
-        - Qdrant
-        - pgvector
-        - Pinecone
-        - ChromaDB
-        - None / dry-run only
-
   - type: textarea
     id: context
     attributes:
-      label: Additional context
-      description: Anything else that might help — OS, repo structure, config snippet.
+      label: Additional Context
+      description: Anything else that might help — OS, pyproject.toml extras, etc.

@@ -91,3 +91,51 @@ class PineconeBackend(VectorDBBackend):
             )
         index = config.get("vectordb.collection", "kbvc")
         return cls(api_key=api_key, index_name=index)
+
+    def initialize_schema(self, collection: str, dimensions: int) -> None:
+        """Create Pinecone index if it does not exist."""
+        try:
+            existing = [idx["name"] for idx in self._pc.list_indexes()]
+        except Exception:
+            existing = []
+        if collection not in existing:
+            self._pc.create_index(
+                name=collection,
+                dimension=dimensions,
+                metric="cosine",
+            )
+
+    def export_chunks(self, collection: str) -> list:
+        """Export all vectors from a Pinecone index as ChunkRecords.
+
+        WARNING: Pinecone does not support full vector export natively.
+        This iterates using list() API (serverless) or fetch by known IDs.
+        For large indexes, this will be slow — use with caution.
+        """
+        from kbvc.backends.vectordb import ChunkRecord
+        index = self._pc.Index(collection)
+        records = []
+        try:
+            for id_batch in index.list():
+                fetch_result = index.fetch(ids=id_batch)
+                for vid, vec_data in fetch_result.vectors.items():
+                    meta = vec_data.metadata or {}
+                    records.append(ChunkRecord(
+                        vector_id=vid,
+                        branch=meta.get("branch", ""),
+                        ko_id=meta.get("ko_id", ""),
+                        ko_version=int(meta.get("ko_version", 0)),
+                        chunk_index=int(meta.get("chunk_index", 0)),
+                        chunk_hash=meta.get("chunk_hash", ""),
+                        embedding=list(vec_data.values or []),
+                        metadata={k: v for k, v in meta.items()
+                                  if k not in ("branch", "ko_id", "ko_version",
+                                               "chunk_index", "chunk_hash", "created_at")},
+                        created_at=meta.get("created_at", ""),
+                    ))
+        except AttributeError:
+            raise NotImplementedError(
+                "Full export requires Pinecone serverless with list() API support. "
+                "Upgrade to pinecone-client>=3.0 and use a serverless index."
+            )
+        return records

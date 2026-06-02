@@ -1,111 +1,154 @@
+<div align="center">
+
+<img src="https://img.shields.io/badge/KBVC-Knowledge%20OS-6366f1?style=for-the-badge&logoColor=white" alt="KBVC"/>
+
 # KBVC — Knowledge Base Version Control
 
-> **Git for your RAG pipeline.**
+**The Knowledge Operating System for AI/RAG systems.**  
+Version control, semantic graph, full audit trails, and reproducible deployment — for your knowledge base.
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-195%20passing-brightgreen.svg)](tests/)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](pyproject.toml)
+[![PyPI version](https://img.shields.io/pypi/v/kbvc.svg?style=flat-square&color=6366f1)](https://pypi.org/project/kbvc/)
+[![Python](https://img.shields.io/pypi/pyversions/kbvc?style=flat-square)](https://pypi.org/project/kbvc/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/Saiyam-Sandhir-Jain/kbvc/ci.yml?style=flat-square&label=CI)](https://github.com/Saiyam-Sandhir-Jain/kbvc/actions)
+[![Tests](https://img.shields.io/badge/tests-195%20passed-brightgreen?style=flat-square)](#)
 
-KBVC is a version control system for AI knowledge bases. It sits between your `.md` knowledge files and your vector database, giving every document, chunk, embedding decision, relation, and prompt a commit history — a complete audit trail and reproducibility guarantee for your RAG pipeline.
-
-```
-Without KBVC:                     With KBVC:
-
-docs/ (changed silently)          kbvc add .
-      ↓                           kbvc commit -m "update API docs"
-vector DB (stale vectors,    →    .kbvc/commits/a3f7c91
-           no audit trail,             KOs: api-docs v1→v2 (2 chunks re-embedded)
-           non-reproducible)           Graph: graph-v4
-                                       Prompt: p-v2
-                                  vector DB (only changed chunks)
-```
+</div>
 
 ---
 
-## Why KBVC?
+## What is KBVC?
 
-| Problem | Without KBVC | With KBVC |
+KBVC is a **Knowledge Operating System** — an infrastructure layer that sits between your documents and your vector database, giving your knowledge base the same discipline that Git gives your code.
+
+It is **not** a RAG library. It is **not** a vector database.  
+It is the **missing infrastructure layer** that answers questions no existing tool can:
+
+| Question | Without KBVC | With KBVC |
 |---|---|---|
-| Document updated | Old vectors persist silently | Only changed chunks re-embedded |
-| Wrong AI answer | Cannot trace cause | `kbvc trace` → commit → model → section |
-| Reproduce last week's result | Impossible | `kbvc checkout <hash>` |
-| Team collaboration | No workflow | Branch → review → commit → push |
-| Embedding model swap | Re-embed everything manually | `kbvc migrate embeddings --to new-model` |
-| Orphaned vectors accumulate | No cleanup mechanism | `kbvc gc` |
+| Which document version produced this embedding? | ❌ Unknown | ✅ `kbvc explain <vector_id>` |
+| What was my knowledge state 3 months ago? | ❌ Gone | ✅ `kbvc checkout <commit>` |
+| How do my documents relate to each other? | ❌ No idea | ✅ `kbvc graph` |
+| Which documents are stale or contradictory? | ❌ Manual audit | ✅ `kbvc stale` / `kbvc contradict list` |
+| Can I reproduce the exact RAG pipeline from last quarter? | ❌ Never | ✅ `kbvc.lock` |
+| If my LLM gives a bad answer, what document caused it? | ❌ Guessing | ✅ `kbvc trace` + `kbvc explain` |
 
 ---
 
-## Install
+## Architecture Overview
+
+```
+ Your Documents (Markdown)
+          │
+          ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │                         KBVC                                │
+ │                                                             │
+ │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │
+ │  │  Commit DAG │  │ Knowledge    │  │  Prompt &         │  │
+ │  │  (SHA-256)  │  │ Graph        │  │  Retrieval Store  │  │
+ │  │             │  │ (Relations)  │  │  (per commit)     │  │
+ │  └─────────────┘  └──────────────┘  └───────────────────┘  │
+ │                                                             │
+ │  ┌──────────────────────────────────────────────────────┐   │
+ │  │       VSAL — Vector Storage Abstraction Layer        │   │
+ │  │  ChunkRecord ──► Qdrant / pgvector / Chroma /        │   │
+ │  │                   Pinecone / LanceDB                 │   │
+ │  └──────────────────────────────────────────────────────┘   │
+ │                                                             │
+ │  ┌──────────────────────────────────────────────────────┐   │
+ │  │        Embed Backends                                │   │
+ │  │  OpenAI · Gemini · Ollama · HuggingFace              │   │
+ │  └──────────────────────────────────────────────────────┘   │
+ └─────────────────────────────────────────────────────────────┘
+          │
+          ▼
+ Your RAG / LLM Application
+```
+
+---
+
+## Feature Matrix
+
+| Phase | Commands | What It Unlocks |
+|---|---|---|
+| **1** | `init` `add` `commit` `log` | Git-style commit loop for knowledge |
+| **2** | `status` `checkout` `diff` | Time travel — restore any past state |
+| **3** | `link` `query` `graph` | Knowledge graph + semantic search |
+| **4** | `branch` `depends` `impact` `annotate` `history` `trace` `doctor` | Audit trails + dependency management |
+| **5** | `ingest` `push` `remote` `analyze` `extract` `stale` `stats` | Multi-source ingestion + intelligence |
+| **6** | `backend` `explain` `promote` | Infrastructure management + provenance |
+| **7** | `gc` `migrate backend` `migrate schema` | Maintenance + zero-downtime ops |
+| **8** | `sync` | Volatility-aware auto-commit |
+| **9** | `contradict list/resolve` | Contradiction detection + resolution |
+| **10** | `ask` | Grounded knowledge Q&A |
+
+---
+
+## Quick Start
+
+### Install
 
 ```bash
-# Base install (no backends — good for exploring)
-pip install kbvc
+# Core (pick your embedding + vector DB extras)
+pip install kbvc[openai,qdrant]
 
-# With your embedding + vector DB backend
-pip install "kbvc[openai,qdrant]"       # OpenAI + Qdrant
-pip install "kbvc[gemini,pgvector]"     # Gemini + pgvector / Supabase
-pip install "kbvc[ollama,chroma]"       # Fully local, no API keys
+# Local-first setup (no external server)
+pip install kbvc[openai,lancedb]
 
 # Everything
-pip install "kbvc[openai,gemini,ollama,hf,qdrant,pgvector,pinecone,chroma]"
+pip install kbvc[all]
 ```
 
-### Supported backends
-
-| Layer | Options |
-|---|---|
-| Embedding | OpenAI · Google Gemini (`google-genai` SDK) · Ollama (local) · HuggingFace |
-| Vector DB | Qdrant · pgvector · Pinecone · ChromaDB |
-
-> **Gemini users:** KBVC uses the new `google-genai` SDK (the old `google-generativeai` reached end-of-life Nov 2025). See [GEMINI_MIGRATION.md](GEMINI_MIGRATION.md) if upgrading.
-
----
-
-## Quickstart
+### Initialize a Knowledge Repository
 
 ```bash
-# 1. Initialise in your knowledge directory
-cd my-knowledge-base
+mkdir my-knowledge && cd my-knowledge
 kbvc init
 
-# 2. Configure backends
+# Configure backends
 kbvc config set embed.backend openai
 kbvc config set embed.key sk-...
-kbvc config set vectordb.backend qdrant
-kbvc config set vectordb.url http://localhost:6333
+kbvc config set vectordb.backend lancedb   # no server needed
+```
 
-# 3. Write a knowledge file
-cat > projects/my-project.md << EOF
+### Create Your First Knowledge Object
+
+Every document tracked by KBVC is a **Knowledge Object (KO)** — a Markdown file with a YAML frontmatter header:
+
+```markdown
 ---
-id: my-project
-type: project
-tags: [ai, llm]
+id: caching-strategy
+type: document
+tags: [architecture, performance]
 volatility: slow
+source_type: file
 ---
 
-## Overview
+## Caching Strategy
 
-My project uses LangChain and ChromaDB to build a RAG system.
+We use a two-tier cache: Redis for hot paths (TTL 60s) and
+PostgreSQL materialized views for aggregate queries.
 
-## Technical Stack
+## Invalidation
 
-Built on the Transformer architecture, using OpenAI embeddings.
-EOF
+Cache invalidation is triggered by...
+```
 
-# 4. Stage, embed, commit
-kbvc add projects/my-project.md
-kbvc commit -m "Initial knowledge base"
+```bash
+kbvc add knowledge/caching-strategy.md
+kbvc commit -m "Add caching strategy document"
+```
 
-# 5. Query
-kbvc query "what is the tech stack?"
+### Explore
 
-# 6. Discover relations between KOs automatically
-kbvc analyze
-
-# 7. Push to production
-kbvc remote add origin --backend qdrant --url https://prod.example.com --collection prod
-kbvc push
+```bash
+kbvc log                         # View commit history
+kbvc status                      # See staged vs. committed state
+kbvc query "how does caching work?"   # Semantic search
+kbvc ask "what is the cache TTL?"     # Grounded Q&A with citations
+kbvc graph                       # Visualize knowledge graph
+kbvc stats                       # Analytics report
 ```
 
 ---
@@ -113,228 +156,288 @@ kbvc push
 ## Core Concepts
 
 ### Knowledge Objects (KOs)
-One `.md` file = one Knowledge Object. Each KO carries a stable `id`, a `type`, `tags`, and a `volatility` level (`frozen` / `slow` / `live`) that controls when it gets re-embedded.
 
-### Commits
-Every `kbvc commit` creates a global snapshot — not just per-file — capturing changed KOs, the knowledge graph, the prompt, and the retrieval configuration. The commit ID is a deterministic SHA-256: same content always produces the same hash.
+A KO is the fundamental unit of KBVC. Each KO is:
+- A Markdown file with YAML frontmatter
+- Chunked into sections (one vector per section)
+- Versioned independently (v1, v2, v3...)
+- Connected to other KOs via typed relations
 
-### Chunk-Level Versioning
-KBVC hashes every chunk. On commit, only chunks whose hash changed are sent to the embedding API. For a 50-section document where 2 sections changed: 2 API calls, not 50.
+**Volatility levels** control how KBVC handles automatic commits:
 
-### The Ingest Pipeline
+| Volatility | Meaning | Auto-commit |
+|---|---|---|
+| `frozen` | Never changes (e.g. archived decisions) | Never re-embedded |
+| `slow` | Changes occasionally (most documents) | On explicit `kbvc sync` |
+| `live` | Changes frequently (e.g. meeting notes) | On every `kbvc sync` |
+
+### Commit DAG
+
+Every `kbvc commit` creates an immutable `CommitObject` — a SHA-256 hash over:
+- Parent commit ID
+- Branch name
+- Commit message
+- All changed KO IDs + their chunk hashes
+- Snapshot filenames for graph, prompt, retrieval config
+
+This gives you a fully reproducible, tamper-evident history — just like Git, but for knowledge.
+
+### Knowledge Graph
+
+KOs can be linked with typed relations:
+
+```bash
+kbvc link caching-strategy informed_by system-architecture
+kbvc link new-api contradicts old-api
+kbvc link auth-module extends base-security
 ```
-kbvc ingest website https://docs.example.com   # download → .md (no vectors touched)
-kbvc add ingested/                              # stage for review
-kbvc commit -m "ingest example docs"            # embed + commit locally
-kbvc push                                       # sync to remote
-```
-Untrusted content never reaches your vector database until you commit it.
+
+**Relation types:** `informed_by` · `contradicts` · `extends` · `derived_from` · `supersedes` · `depends_on` · `related_to`
 
 ### VSAL — Vector Storage Abstraction Layer
-All storage goes through a universal `ChunkRecord` schema. The backend is an implementation detail — migrate between Qdrant, pgvector, Pinecone, and ChromaDB with a single command:
+
+KBVC never touches Qdrant points, pgvector rows, or Pinecone vectors directly. All storage goes through `ChunkRecord` — a universal unit that every backend adapter maps to its native representation.
+
+This means you can migrate between vector databases **without re-embedding**:
+
 ```bash
 kbvc migrate backend --from qdrant --to pgvector
 ```
 
-### Relation Registry
-KBVC ships a typed relation system with two built-in tiers:
-- **Core relations** — affect KBVC internals (`depends_on`, `contradicts`, `supersedes`, `supported_by`). KBVC enforces their semantic properties (transitive, symmetric, inverse).
-- **Temporal relations** — pre-defined convenience types (`studied_at`, `worked_at`, `developed_during`) for graph traversal and human context.
+---
 
-You can also define your own:
-```bash
-kbvc relation create deployed_on --inverse hosts --category infrastructure
-kbvc relation list --category core
+## Knowledge Object Frontmatter Reference
+
+```yaml
+---
+id: my-document              # required; used as ko_id
+type: project                # project | education | patent | document | lesson | ...
+tags: [ai, rag, python]      # free tags for filtering
+volatility: slow             # frozen | slow | live
+source_type: file            # file | web | github | pdf | notion | memory
+valid_from: "2026-01-01"     # optional temporal validity window
+valid_to: null               # null = still valid
+---
 ```
 
 ---
 
-## Command Reference
+## All Commands
 
-<details>
-<summary><strong>Setup & core workflow</strong></summary>
+### Repository Setup
 
 ```bash
-kbvc init                          # initialise repo
-kbvc config set embed.backend openai
-kbvc add projects/doc.md           # stage a file
-kbvc add .                         # stage all .md files
-kbvc status                        # show staged / unstaged / stale
-kbvc commit -m "message"           # embed changed chunks, snapshot state
-kbvc commit -m "message" --dry-run # preview without writing
-kbvc log                           # full commit history
-kbvc log --oneline
-kbvc diff projects/doc.md          # chunk diff vs last commit
-kbvc checkout <hash>               # restore full state to a commit
+kbvc init [--name NAME] [--no-git]   # Initialize a KBVC repo
+kbvc clone <url> [directory]          # Clone a KBVC repo from Git
+kbvc config set <key> <value>         # Set a config value
+kbvc config get <key>                 # Read a config value
+kbvc config list                      # List all config
 ```
-</details>
 
-<details>
-<summary><strong>Knowledge graph</strong></summary>
+### Knowledge Authoring
 
 ```bash
-kbvc link a.md b.md --type informed_by --note "based on this paper"
-kbvc unlink <rel-id>
-kbvc graph projects/doc.md         # show neighbours
-kbvc graph projects/doc.md --depth 2
-kbvc analyze                       # auto-discover relation candidates
-kbvc analyze --use-vectors --apply
-kbvc depends add consumer.md base.md
-kbvc impact base.md                # what breaks if base.md changes?
+kbvc add <path|.>                     # Stage files for commit
+kbvc add <path> --reason "why"       # Stage with an annotation
+kbvc commit -m "message"             # Commit staged changes
+kbvc commit -m "message" --dry-run   # Preview commit (no write)
+kbvc status                          # Show staged vs. committed state
 ```
-</details>
 
-<details>
-<summary><strong>Relation type management</strong></summary>
+### History & Diff
 
 ```bash
-kbvc relation list                 # all built-in + custom relation types
-kbvc relation list --category core
-kbvc relation show informed_by     # full details including inverse/flags
-kbvc relation create deployed_on \
-    --inverse hosts \
-    --category infrastructure
+kbvc log                             # Commit history (newest first)
+kbvc log --oneline                   # Compact history
+kbvc diff                            # Diff staged against HEAD
+kbvc diff <commit_id>                # Diff against a specific commit
+kbvc history <ko_id>                 # Version history for one KO
+kbvc checkout <commit_id>            # Restore knowledge state
+kbvc checkout <commit_id> --ko <id>  # Restore single KO
 ```
-</details>
 
-<details>
-<summary><strong>Retrieval</strong></summary>
+### Knowledge Graph
 
 ```bash
-kbvc query "what is the tech stack?"
-kbvc query "funding details" --top-k 10
-kbvc query "..." --profile graphrag   # vector + graph traversal
+kbvc link <from> <type> <to>         # Create a relation
+kbvc graph                           # Print graph summary
+kbvc graph --dot                     # Export as DOT (Graphviz)
+kbvc depends <ko_id>                 # Show KO dependencies
+kbvc impact <ko_id>                  # What depends on this KO?
 ```
-</details>
 
-<details>
-<summary><strong>Ingest</strong></summary>
+### Search & Q&A
 
 ```bash
-kbvc ingest website https://docs.anthropic.com
-kbvc ingest github https://github.com/langchain-ai/langchain
-kbvc ingest pdf ~/papers/paper.pdf
-kbvc ingest notion <page-id> --token $NOTION_TOKEN
+kbvc query "natural language question"  # Vector search
+kbvc query "..." --top-k 10             # Return 10 results
+kbvc ask "natural language question"    # Grounded Q&A with citations
+kbvc ask "..." --top-k 5 --show-ids     # Show raw vector IDs
 ```
-</details>
 
-<details>
-<summary><strong>Branches & prompt versioning</strong></summary>
+### Intelligence & Analytics
 
 ```bash
-kbvc branch create experiment
-kbvc branch switch experiment
-kbvc prompt set "Answer using only the provided context."
-kbvc prompt log
-kbvc prompt checkout p-v2
+kbvc analyze                         # Suggest relations between KOs
+kbvc extract                         # Extract entities from KOs
+kbvc stale                           # Find stale/orphaned KOs
+kbvc contradict list                 # List contradictions
+kbvc contradict resolve <rel_id>     # Resolve a contradiction
+kbvc stats                           # Analytics report
 ```
-</details>
 
-<details>
-<summary><strong>Maintenance & migration</strong></summary>
+### Provenance & Audit
 
 ```bash
-kbvc gc                            # remove orphaned vectors
-kbvc gc --dry-run --snapshots
-kbvc sync                          # auto-commit all changed KOs
-kbvc sync --volatility live
-kbvc migrate backend --from qdrant --to pgvector
-kbvc migrate embeddings --from text-embedding-3-small --to gemini-embedding-001
-kbvc migrate schema
+kbvc trace <ko_id>                   # Full version trail for a KO
+kbvc explain <vector_id>             # Trace vector → source → commit
+kbvc annotate <ko_id> "reason"       # Add change reason before commit
+kbvc doctor                          # Repo health check
 ```
-</details>
 
-<details>
-<summary><strong>Audit & health</strong></summary>
+### Ingestion
 
 ```bash
-kbvc trace main__doc__chunk_2      # trace a vector to its commit
-kbvc explain main__doc__chunk_2    # full provenance chain
-kbvc history projects/doc.md       # per-KO version history
-kbvc stale                         # show stale KOs
-kbvc stale --fix                   # stage stale KOs for recommit
-kbvc stats                         # evolution dashboard
-kbvc doctor --knowledge            # full health check
-kbvc contradict list               # show contradiction pairs
-kbvc contradict resolve <rel-id>
+kbvc ingest website <url>            # Scrape a website
+kbvc ingest github <repo_url>        # Import a GitHub repo
+kbvc ingest pdf <file.pdf>           # Convert PDF to KO
+kbvc ingest notion <page_url>        # Import a Notion page
+kbvc ingest text <file.txt>          # Import a plain text file
 ```
-</details>
 
-<details>
-<summary><strong>Push & remote</strong></summary>
+### Branches & Remotes
 
 ```bash
-kbvc remote add origin --backend qdrant --url https://... --collection prod
-kbvc remote add staging --backend qdrant --url https://... --collection staging
-kbvc push                          # incremental push to origin
-kbvc push staging
-kbvc push --dry-run
+kbvc branch                          # List branches
+kbvc branch <name>                   # Create a branch
+kbvc branch checkout <name>          # Switch branch
+kbvc remote add <name> <url>         # Add a remote
+kbvc push                            # Push to configured remote
 ```
-</details>
 
-<details>
-<summary><strong>Backend management</strong></summary>
+### Infrastructure
 
 ```bash
-kbvc backend init                  # idempotently create KBVC schema
-kbvc backend info                  # show backend config (no credentials)
-```
-</details>
-
----
-
-## The `kbvc.lock` File
-
-Commit `kbvc.lock` to your git repository. It records the exact embedding model, vector store, and retrieval configuration — like `package-lock.json` for your knowledge base. Anyone cloning the repo knows exactly what backend to configure.
-
----
-
-## Reproducibility
-
-Given any commit hash, you can restore the exact knowledge state that produced a retrieval result — document versions, graph snapshot, prompt, retrieval config:
-
-```bash
-kbvc trace main__doc__chunk_3
-# → committed 2026-03-15, model text-embedding-3-small, commit a3f7c91
-
-kbvc checkout a3f7c91
-# Exact same retrieval results as at that point in time
+kbvc backend init                    # Create vector DB schema
+kbvc backend info                    # Show backend status
+kbvc migrate backend --from X --to Y # Migrate vector store
+kbvc migrate embeddings --from M --to M2  # Swap embedding model
+kbvc migrate schema                  # Update lock file schema
+kbvc gc                              # Garbage-collect orphan vectors
+kbvc sync                            # Volatility-aware auto-commit
+kbvc sync --volatility live          # Only sync live KOs
+kbvc sync --dry-run                  # Preview what would be committed
+kbvc promote "<memory text>"         # Promote agent memory to KO
 ```
 
 ---
 
-## Development
+## Backends
 
-```bash
-git clone https://github.com/Saiyam-Sandhir-Jain/kbvc
-cd kbvc
-pip install -e ".[dev]"
-pytest tests/
-```
+### Embedding Backends
 
-```
-195 tests · 0 failures · 0 errors
-```
-
----
-
-## Roadmap
-
-| Phase | Status | Features |
+| Backend | Install Extra | Models |
 |---|---|---|
-| 1–6 | ✅ Complete | Core version control, graph, GraphRAG, ingest, push, VSAL, explain, promote |
-| 7 | ✅ Complete | `kbvc gc`, `kbvc migrate embeddings`, `kbvc migrate schema` |
-| 8 | ✅ Complete | `kbvc sync` |
-| 9 | ✅ Complete | `kbvc contradict` |
-| + | ✅ Complete | Relation Registry (`kbvc relation list/show/create`), Gemini SDK migration |
-| Next | 🔜 Planned | Python SDK, `kbvc pull --rebuild`, branch merge, web UI, `kbvc ask` |
+| **OpenAI** | `kbvc[openai]` | `text-embedding-3-small` (default), `text-embedding-3-large`, `ada-002` |
+| **Gemini** | `kbvc[gemini]` | `gemini-embedding-001` |
+| **Ollama** | `kbvc[ollama]` | any locally-served model (`nomic-embed-text`, etc.) |
+| **HuggingFace** | `kbvc[hf]` | any `sentence-transformers` model |
+
+```bash
+# OpenAI
+kbvc config set embed.backend openai
+kbvc config set embed.key sk-...
+kbvc config set embed.model text-embedding-3-small
+
+# Ollama (local, no API key)
+kbvc config set embed.backend ollama
+kbvc config set embed.model nomic-embed-text
+kbvc config set embed.url http://localhost:11434
+```
+
+### Vector DB Backends
+
+| Backend | Install Extra | Best For |
+|---|---|---|
+| **LanceDB** | `kbvc[lancedb]` | Local dev, no server, embedded |
+| **Qdrant** | `kbvc[qdrant]` | Production, cloud-native |
+| **pgvector** | `kbvc[pgvector]` | PostgreSQL shops |
+| **Chroma** | `kbvc[chroma]` | Local dev, Python-first |
+| **Pinecone** | `kbvc[pinecone]` | Managed serverless |
+
+```bash
+# LanceDB (no server needed — best for local dev)
+kbvc config set vectordb.backend lancedb
+kbvc config set vectordb.url ./kbvc_lance
+
+# Qdrant
+kbvc config set vectordb.backend qdrant
+kbvc config set vectordb.url http://localhost:6333
+kbvc config set vectordb.collection kbvc
+
+# pgvector
+kbvc config set vectordb.backend pgvector
+kbvc config set vectordb.url "postgresql://user:pass@localhost/mydb"
+```
+
+---
+
+## The kbvc.lock File
+
+Every commit writes a `kbvc.lock` file to your repo root — analogous to `package-lock.json`. It records:
+
+```yaml
+kbvc_version: "0.1.0"
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  dimensions: 1536
+vector_store:
+  provider: qdrant
+  collection: kbvc
+committed_at: "2026-01-15T10:30:00Z"
+commit_id: "a3f2c1d9..."
+```
+
+Commit `kbvc.lock` to Git. Anyone cloning your repo with `kbvc clone` will see exactly what backend configuration was used and can reproduce it.
+
+---
+
+## Use Cases
+
+### AI Product Teams
+Track your RAG knowledge base like code. Every prompt change, every document update, every embedding model swap is versioned and auditable. Reproduce any past retrieval configuration exactly.
+
+### Research Labs
+Manage evolving scientific knowledge with contradiction detection and lineage tracking. Know when a newer paper supersedes an older one. Build multi-hop knowledge graphs connecting related findings.
+
+### Enterprise Knowledge Management
+Enforce governance over internal knowledge bases. Who changed what, when, and why. Detect when two documents contradict each other. Get alerts when downstream KOs depend on stale upstream content.
+
+### LLM Application Developers
+Debug why your LLM gave a specific answer — trace it back to the exact document chunk, its version, and the commit that created its embedding. Swap embedding models without rewriting your pipeline.
+
+---
+
+## Development Setup
+
+```bash
+git clone https://github.com/Saiyam-Sandhir-Jain/kbvc.git
+cd kbvc
+pip install -e ".[dev,openai,qdrant]"
+pytest tests/ -v
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide.
 
 ---
 
 ## License
 
-[MIT](LICENSE) — see `LICENSE` for details.
+MIT © [Saiyam Jain](https://github.com/Saiyam-Sandhir-Jain)
 
 ---
 
-*KBVC — because your AI is only as trustworthy as the knowledge it retrieves.*
+<div align="center">
+  <sub>Built by Saiyam Jain · VIT Bhopal</sub>
+</div>

@@ -1,0 +1,25 @@
+name: Documentation Issue
+description: Report missing, incorrect, or confusing documentation
+title: "[Docs]: "
+labels: ["docs"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Documentation Location
+      description: Which file or section has the issue?
+      placeholder: "README.md / Quick Start section"
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What's wrong or missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement

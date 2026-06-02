@@ -2060,16 +2060,35 @@ def clone(url, directory):
     info = json.loads(repo_json.read_text())
     click.echo(f"\nCloned KBVC repository: {info.get('name', target)}")
     click.echo(f"  Format: v{info.get('format_version')}")
-    click.echo("\nNext steps:")
-    click.echo("  1. Configure your backends:")
-    click.echo("       kbvc config set embed.backend openai")
-    click.echo("       kbvc config set embed.key sk-...")
-    click.echo("       kbvc config set vectordb.backend qdrant")
-    click.echo("       kbvc config set vectordb.url http://localhost:6333")
-    click.echo("  2. Initialise the vector DB schema:")
-    click.echo("       kbvc backend init")
-    click.echo("  3. Re-embed all KOs into your local vector DB:")
-    click.echo("       kbvc add . && kbvc commit -m \"rebuild from clone\"")
+
+    # Read kbvc.lock for configuration hints
+    lock_path = Path(target) / "kbvc.lock"
+    embed_provider = embed_model = vdb_provider = collection = ""
+    if lock_path.exists():
+        try:
+            import yaml as _yaml
+            lock = _yaml.safe_load(lock_path.read_text())
+            embed_provider = lock.get("embedding", {}).get("provider", "")
+            embed_model = lock.get("embedding", {}).get("model", "")
+            vdb_provider = lock.get("vector_store", {}).get("provider", "")
+            collection = lock.get("vector_store", {}).get("collection", "kbvc")
+            click.echo(f"\nLock file detected:")
+            click.echo(f"  embedding:    {embed_provider} / {embed_model}")
+            click.echo(f"  vector store: {vdb_provider} / {collection}")
+        except Exception:
+            pass
+
+    click.echo(f"\nSuccessfully cloned KBVC repository into {target}/")
+    click.echo("Next steps to restore the knowledge state:")
+    click.echo(f"  cd {target}")
+    ep = embed_provider or "openai  # or gemini/ollama/huggingface"
+    vp = vdb_provider or "qdrant   # or pgvector/chroma/lancedb"
+    click.echo(f"  kbvc config set embed.backend {ep}")
+    click.echo(f"  kbvc config set embed.key <your-api-key>")
+    click.echo(f"  kbvc config set vectordb.backend {vp}")
+    click.echo(f"  kbvc config set vectordb.url <url>")
+    click.echo(f"  kbvc backend init          # create vector DB schema")
+    click.echo(f"  kbvc push                  # re-embed and push knowledge state")
 
 
 @main.group()
@@ -2425,3 +2444,138 @@ def contradict_resolve(rel_id):
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: kbvc ask — AI-assisted knowledge Q&A with full provenance
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.argument("question")
+@click.option("--top-k", default=5, show_default=True,
+              help="Number of KO chunks to retrieve.")
+@click.option("--profile", default=None,
+              help="Override the active retrieval profile.")
+@click.option("--branch", "branch_override", default=None,
+              help="Query a specific branch (default: current branch).")
+@click.option("--show-ids", is_flag=True, default=False,
+              help="Print raw vector IDs alongside results.")
+def ask(question, top_k, profile, branch_override, show_ids):
+    """Retrieve the most relevant knowledge chunks for a question.
+
+    \b
+    Embeds QUESTION, performs nearest-neighbour search across the active
+    branch, and prints the top-K matching KO chunks with full provenance
+    (KO id, version, commit SHA, similarity score).
+
+    Use the output as grounded context for your LLM.  For a full audit
+    trail of any returned chunk, run:
+
+      kbvc explain <vector_id>
+
+    \b
+    Examples:
+        kbvc ask "What is the caching strategy?"
+        kbvc ask "Which projects use transformers?" --top-k 10
+        kbvc ask "Summarise the auth flow" --branch feature/auth
+    """
+    from kbvc.backends import get_embed_backend, get_vectordb_backend
+    from kbvc.core.repo import KbvcRepo, NotKBVCRepositoryError
+    from kbvc.core.ko import KOStore
+    from kbvc.core.chunker import parse_frontmatter, split_into_chunks
+
+    try:
+        repo = KbvcRepo.require()
+    except NotKBVCRepositoryError as exc:
+        raise click.ClickException(str(exc))
+
+    config = repo.config()
+    collection = config.get("vectordb.collection", "kbvc")
+    branch = branch_override or repo.current_branch()
+
+    try:
+        embed = get_embed_backend(config)
+        vdb = get_vectordb_backend(config)
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
+
+    # ── Embed the question ────────────────────────────────────────────────
+    try:
+        q_vec = embed.embed(question)
+    except Exception as exc:
+        raise click.ClickException(f"Embedding failed: {exc}")
+
+    # ── Retrieve top-K chunks ─────────────────────────────────────────────
+    results = vdb.query(
+        collection, q_vec, top_k=top_k,
+        filter={"branch": branch},
+    )
+
+    if not results:
+        click.echo("No relevant knowledge found for that question.")
+        click.echo(f"  branch: {branch}  |  collection: {collection}")
+        return
+
+    # ── Load KO source files to get chunk text ────────────────────────────
+    ko_store = KOStore(repo.ko_store_path)
+
+    context_parts = []
+    for r in results:
+        meta = r.get("metadata", {})
+        ko_id = meta.get("ko_id", "")
+        chunk_idx = int(meta.get("chunk_index", 0))
+        ko = ko_store.get(ko_id)
+        if not ko:
+            continue
+        src = repo.root / ko.path
+        if not src.exists():
+            continue
+        try:
+            content = src.read_text(encoding="utf-8")
+            fm, body = parse_frontmatter(content)
+            chunks = split_into_chunks(body, fm)
+            chunk_text = chunks[chunk_idx].text if chunk_idx < len(chunks) else ""
+        except Exception:
+            chunk_text = ""
+        context_parts.append({
+            "vector_id": r.get("id", ""),
+            "text": chunk_text,
+            "ko_id": ko_id,
+            "ko_version": meta.get("ko_version", ko.version),
+            "commit_id": meta.get("commit_id", ""),
+            "score": r.get("score", 0.0),
+        })
+
+    if not context_parts:
+        click.echo("Found vector results but could not load chunk text.")
+        click.echo("Make sure source files are present on disk.")
+        return
+
+    # ── Display ───────────────────────────────────────────────────────────
+    W = 66
+    click.echo(f"\n{'━' * W}")
+    click.echo(f"  kbvc ask  ›  {question!r}")
+    click.echo(f"  branch: {branch}  |  top-{len(context_parts)} chunks retrieved")
+    click.echo(f"{'━' * W}\n")
+
+    for i, part in enumerate(context_parts, 1):
+        cid_short = part["commit_id"][:7] if part["commit_id"] else "unknown"
+        score_pct = int(part["score"] * 100)
+        header = (
+            f"[{i}] {part['ko_id']}  "
+            f"v{part['ko_version']}  "
+            f"commit:{cid_short}  "
+            f"score:{score_pct}%"
+        )
+        click.echo(click.style(header, bold=True))
+        if show_ids:
+            click.echo(f"    vector_id: {part['vector_id']}")
+        text = part["text"]
+        preview = text[:600] + ("…" if len(text) > 600 else "")
+        click.echo(preview)
+        click.echo()
+
+    click.echo(f"{'━' * W}")
+    click.echo("Use the context above with your LLM to generate a grounded answer.")
+    click.echo("For full provenance of any chunk: kbvc explain <vector_id>")
+    click.echo(f"{'━' * W}\n")

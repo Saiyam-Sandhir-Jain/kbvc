@@ -1,0 +1,48 @@
+- name: bug
+  color: "d73a4a"
+  description: Something isn't working
+- name: enhancement
+  color: "a2eeef"
+  description: New feature or improvement
+- name: feature
+  color: "7057ff"
+  description: New feature proposal
+- name: docs
+  color: "0075ca"
+  description: Documentation improvements
+- name: documentation
+  color: "0075ca"
+  description: Documentation improvements
+- name: fix
+  color: "e4e669"
+  description: Bug fix
+- name: chore
+  color: "fef2c0"
+  description: Maintenance and tooling
+- name: ci
+  color: "0e8a16"
+  description: CI/CD changes
+- name: breaking
+  color: "b60205"
+  description: Breaking change
+- name: triage
+  color: "ededed"
+  description: Needs triage
+- name: good first issue
+  color: "7057ff"
+  description: Good for newcomers
+- name: help wanted
+  color: "008672"
+  description: Extra attention needed
+- name: deps
+  color: "fad8c7"
+  description: Dependency updates
+- name: major
+  color: "b60205"
+  description: Major version bump
+- name: minor
+  color: "fbca04"
+  description: Minor version bump
+- name: patch
+  color: "e4e669"
+  description: Patch version bump

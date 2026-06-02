@@ -1,7 +1,7 @@
 # kbvc/core/chunker.py
 """
 Markdown chunker: splits a KO source file into sections,
-prefixes each with the KO identity string, and hashes with xxhash.
+prefixes each with the KO identity string, and hashes with SHA-256.
 Compatible with Saiyam's existing frontmatter schema.
 """
 

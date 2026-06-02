@@ -1,8 +1,8 @@
-# CODEOWNERS
-# These owners are automatically requested for review on every PR.
-# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
-
+# Default owner for everything
 * @Saiyam-Sandhir-Jain
 
-# Backends require maintainer review
-src/kbvc/backends/ @Saiyam-Sandhir-Jain
+# Core subsystem owners
+/src/kbvc/core/           @Saiyam-Sandhir-Jain
+/src/kbvc/backends/       @Saiyam-Sandhir-Jain
+/src/kbvc/commands/       @Saiyam-Sandhir-Jain
+/tests/                   @Saiyam-Sandhir-Jain

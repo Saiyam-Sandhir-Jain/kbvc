@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Documentation
-    url: https://github.com/kbvc-ai/kbvc/blob/main/KBVC_DOCS.md
-    about: Full command reference and architecture docs
-  - name: Discussions
-    url: https://github.com/kbvc-ai/kbvc/discussions
-    about: Questions, ideas, and community chat
+  - name: Question / Discussion
+    url: https://github.com/Saiyam-Sandhir-Jain/kbvc/discussions
+    about: Ask questions and share ideas in Discussions.
+  - name: Security Vulnerability
+    url: https://github.com/Saiyam-Sandhir-Jain/kbvc/blob/main/SECURITY.md
+    about: Please report security issues per our security policy.

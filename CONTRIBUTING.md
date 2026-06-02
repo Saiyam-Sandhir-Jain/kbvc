@@ -1,117 +1,232 @@
 # Contributing to KBVC
 
-Thank you for your interest in contributing. KBVC is a version control system for AI knowledge bases, and every improvement — bug fix, new backend, new command, or doc clarification — makes the whole project more useful.
+Thank you for your interest in contributing to KBVC! This guide covers everything you need to get started.
 
 ---
 
-## Getting started
+## Table of Contents
+
+- [Code of Conduct](#code-of-conduct)
+- [Development Setup](#development-setup)
+- [Project Structure](#project-structure)
+- [Making Changes](#making-changes)
+- [Testing](#testing)
+- [Submitting a PR](#submitting-a-pr)
+- [Design Invariants](#design-invariants)
+- [Adding Backends](#adding-backends)
+- [Release Process](#release-process)
+
+---
+
+## Code of Conduct
+
+Be respectful, constructive, and inclusive. This is an open-source project maintained in good faith.
+
+---
+
+## Development Setup
 
 ```bash
-git clone https://github.com/Saiyam-Sandhir-Jain/kbvc
+# 1. Fork and clone
+git clone https://github.com/<you>/kbvc.git
 cd kbvc
-pip install -e ".[dev]"
-pytest tests/          # 195 tests · 0 failures expected
+
+# 2. Install in dev mode (editable)
+pip install -e ".[dev,openai,qdrant]"
+
+# 3. Verify tests pass
+pytest tests/ -v
+# Expected: 195 passed
+
+# 4. Run a local smoke test
+mkdir /tmp/test-kb && cd /tmp/test-kb
+kbvc init --no-git
+kbvc config set embed.backend openai
+kbvc config set embed.key sk-...
+kbvc config set vectordb.backend lancedb
+kbvc config set vectordb.url ./kbvc_lance
 ```
 
 ---
 
-## How to contribute
-
-### Reporting bugs
-
-Open a [bug report](https://github.com/Saiyam-Sandhir-Jain/kbvc/issues/new?template=bug_report.yml). Include the KBVC version (`kbvc --version`), Python version, backends in use, and the full traceback.
-
-### Requesting features
-
-Open a [feature request](https://github.com/Saiyam-Sandhir-Jain/kbvc/issues/new?template=feature_request.yml). Check the [roadmap](KBVC_OVERVIEW.md) first — the feature may already be planned.
-
-### Submitting a pull request
-
-1. Fork the repo and create a branch from `main`:
-   ```bash
-   git checkout -b feat/your-feature
-   ```
-2. Make your changes. Keep commits focused and atomic.
-3. Add or update tests. Every changed behaviour needs a test.
-4. Run the full suite:
-   ```bash
-   pytest tests/ -v
-   ```
-5. Update `CHANGELOG.md` under `[Unreleased]`.
-6. Open a PR against `main`. Fill in the PR template.
-
----
-
-## Project structure
+## Project Structure
 
 ```
-kbvc/
-├── src/
-│   └── kbvc/
-│       ├── cli.py              # Click entry-point; routes to commands/
-│       ├── commands/           # One module per command group
-│       ├── core/               # Repo, KO, chunker, commit, graph, lineage
-│       ├── backends/
-│       │   ├── embed/          # OpenAI · Gemini · Ollama · HuggingFace
-│       │   └── vectordb/       # Qdrant · pgvector · Pinecone · ChromaDB
-│       ├── adapters/           # Source adapters (text file, future: PDF, etc.)
-│       └── utils/              # Config, display, lock file helpers
-├── tests/
-│   └── test_kbvc.py        # Full integration test suite (195 tests)
-├── pyproject.toml
-├── KBVC_DOCS.md            # Full command reference
-└── CHANGELOG.md
+src/kbvc/
+├── cli.py          ← All Click commands wired here
+├── core/           ← Data models (no I/O except files)
+├── backends/       ← Pluggable embed + vectordb adapters
+├── adapters/       ← Source type processors (text, web, pdf...)
+├── commands/       ← Business logic called by cli.py
+└── utils/          ← Config, display, lock helpers
+
+tests/
+└── test_kbvc.py    ← 2400+ line test suite (all phases)
 ```
 
 ---
 
-## Adding a new vector DB backend
+## Making Changes
 
-1. Create `src/kbvc/backends/vectordb/mybackend.py`.
-2. Implement the `VectorBackend` interface from `src/kbvc/backends/vectordb/__init__.py`.
-3. Register the backend string in `kbvc/utils/config.py`.
-4. Add an optional dependency in `pyproject.toml` under `[project.optional-dependencies]`.
-5. Write tests covering `upsert`, `query`, `delete`, and `list_all`.
+### New CLI Commands
 
-## Adding a new embedding backend
+1. Add business logic to a new file in `commands/`
+2. Wire the Click command in `cli.py`
+3. Follow the docstring convention: include `\b` + examples block
+4. All commands that need backends import them via `get_embed_backend()` / `get_vectordb_backend()`
 
-Same pattern under `src/kbvc/backends/embed/`. Implement `EmbedBackend` and register in config.
+```python
+@main.command()
+@click.argument("ko_id")
+@click.option("--verbose", is_flag=True)
+def mycommand(ko_id, verbose):
+    """One-line description.
+
+    \b
+    Longer description here.
+
+    \b
+    Examples:
+        kbvc mycommand foo
+        kbvc mycommand foo --verbose
+    """
+    from kbvc.core.repo import KbvcRepo, NotKBVCRepositoryError
+    try:
+        repo = KbvcRepo.require()
+    except NotKBVCRepositoryError as exc:
+        raise click.ClickException(str(exc))
+    ...
+```
+
+### Commit Message Convention
+
+```
+<type>(<scope>): <short description>
+
+[optional body]
+
+[optional footer]
+```
+
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`
+
+Examples:
+```
+feat(backends): add LanceDB vector backend
+fix(sync): use StagingIndex.load() instead of raw constructor
+docs(readme): add backend comparison table
+test(phase9): add contradiction resolution edge cases
+```
 
 ---
 
-## Code style
+## Testing
 
-KBVC uses [ruff](https://github.com/astral-sh/ruff) for linting and formatting.
+All tests are in `tests/test_kbvc.py`. The entire suite runs offline — all external backends are mocked.
 
 ```bash
-pip install ruff
-ruff check src/kbvc/
-ruff format src/kbvc/
+# Run all tests
+pytest tests/ -v
+
+# Run a specific phase
+pytest tests/ -v -k "Phase3"
+
+# Run with coverage
+pytest tests/ --cov=kbvc --cov-report=term-missing
 ```
 
-CI will fail on lint errors.
+### Adding Tests for New Features
+
+Follow the existing `TempRepoTest` base class pattern:
+
+```python
+class TestMyFeature(TempRepoTest):
+    def setUp(self):
+        super().setUp()
+        # self.repo is already init'd with --no-git
+        # self.runner is a Click test runner
+        # self.invoke(cmd, args) is a convenience helper
+
+    @patch("kbvc.commands.my_command.get_embed_backend")
+    @patch("kbvc.commands.my_command.get_vectordb_backend")
+    def test_basic(self, mock_vdb, mock_embed):
+        mock_embed.return_value = fake_embed_backend()
+        mock_vdb.return_value = fake_vdb_backend()
+        result = self.invoke(mycommand, ["arg1"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("expected output", result.output)
+```
+
+Use `fake_embed_backend()` and `fake_vdb_backend()` for mocks — these are defined near the top of `test_kbvc.py`.
 
 ---
 
-## Commit messages
+## Submitting a PR
 
-Use [Conventional Commits](https://www.conventionalcommits.org/):
+1. Fork the repo and create a branch: `git checkout -b feat/my-feature`
+2. Make your changes
+3. Add tests (all new commands must have tests)
+4. Update `CHANGELOG.md` under `[Unreleased]`
+5. Ensure `pytest tests/ -v` passes
+6. Open a PR against `main`
 
-```
-feat(gc): add --snapshots flag to prune unreachable snapshot files
-fix(commit): handle empty staging area without traceback
-docs: add GraphRAG retrieval example to README
-test(migrate): cover zero-KO edge case in embeddings migration
-```
-
----
-
-## Secrets policy
-
-**Never commit API keys, tokens, or credentials.** KBVC's `.gitignore` excludes `.kbvc/secrets` and `.kbvc/config.local`. If you accidentally commit a secret, rotate it immediately and open an issue.
+Use the PR template — fill in all sections.
 
 ---
 
-## Questions?
+## Design Invariants
 
-Open a [Discussion](https://github.com/Saiyam-Sandhir-Jain/kbvc/discussions) — we're happy to help.
+**Never violate these** — they are core to KBVC's audit integrity:
+
+1. **Commit hash excludes timestamp.** Content-addressable, like Git.
+2. **`ko_id` always derived by `_path_to_ko_id()`.** Never re-implement inline.
+3. **Vector IDs always `<branch>__<ko_id>__chunk_<N>`.** Double underscore is the delimiter.
+4. **Version snapshots are immutable.** Once written, never overwritten.
+5. **`kbvc.lock` never contains API keys.**
+6. **Frozen KOs never re-embedded.**
+
+See `KBVC_DOCS.md § Design Invariants` for the full list.
+
+---
+
+## Adding Backends
+
+### New Embedding Backend
+
+```python
+# src/kbvc/backends/embed/mybackend.py
+from kbvc.backends.embed import EmbedBackend
+
+class MyEmbedBackend(EmbedBackend):
+    @property
+    def dimensions(self) -> int: return 768
+
+    @property
+    def model_name(self) -> str: return "my-model"
+
+    def embed(self, text: str) -> list: ...
+    def embed_batch(self, texts: list) -> list: ...
+
+    @classmethod
+    def from_config(cls, config: dict) -> "MyEmbedBackend":
+        return cls(...)
+```
+
+Register in `backends/__init__.py` and add to `pyproject.toml` optional-dependencies.
+
+### New Vector DB Backend
+
+Implement all methods in `VectorDBBackend` ABC including `initialize_schema` and `export_chunks`. See `backends/vectordb/lancedb.py` as the reference implementation.
+
+---
+
+## Release Process
+
+Releases are managed by the maintainer (@Saiyam-Sandhir-Jain). The workflow:
+
+1. Merge PRs into `main`
+2. Update `CHANGELOG.md` — move `[Unreleased]` items to a new version section
+3. Bump version in `pyproject.toml` and `src/kbvc/__init__.py`
+4. Create a GitHub Release → triggers the `publish.yml` workflow → auto-publishes to PyPI
+
+Contributors do **not** bump the version number in their PRs.

@@ -38,7 +38,7 @@ def run_sync(
     from kbvc.core.index import StagingIndex
 
     store = KOStore(repo.ko_store_path)
-    index = StagingIndex(repo.kbvc_dir / "index")
+    index = StagingIndex.load(repo.index_path)
 
     # Determine which volatility levels to include
     if volatility == "live":
@@ -84,6 +84,8 @@ def run_sync(
     commit_msg = message or f"kbvc sync: {len(candidates)} KO(s) updated"
 
     click.echo(f"\nCommitting: \"{commit_msg}\"")
+
+    index.save(repo.index_path)
 
     from kbvc.commands.commit import run_commit
 

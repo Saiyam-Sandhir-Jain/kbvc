@@ -62,4 +62,7 @@ def get_vectordb_backend(config: dict) -> VectorDBBackend:
     if backend_name == "chroma":
         from kbvc.backends.vectordb.chroma import ChromaBackend
         return ChromaBackend.from_config(config)
+    if backend_name == "lancedb":
+        from kbvc.backends.vectordb.lancedb import LanceDBBackend
+        return LanceDBBackend.from_config(config)
     raise ValueError(f"Unknown vectordb backend: '{backend_name}'")
