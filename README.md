@@ -1,10 +1,6 @@
-<div align="center">
-
-<img src="https://img.shields.io/badge/KBVC-Knowledge%20OS-6366f1?style=for-the-badge&logoColor=white" alt="KBVC"/>
-
 # KBVC — Knowledge Base Version Control
 
-**The Knowledge Operating System for AI/RAG systems.**  
+**Knowledge Infrastructure Layer for AI/RAG systems.**  
 Version control, semantic graph, full audit trails, and reproducible deployment — for your knowledge base.
 
 [![PyPI version](https://img.shields.io/pypi/v/kbvc.svg?style=flat-square&color=6366f1)](https://pypi.org/project/kbvc/)
@@ -36,37 +32,7 @@ It is the **missing infrastructure layer** that answers questions no existing to
 ---
 
 ## Architecture Overview
-
-```
- Your Documents (Markdown)
-          │
-          ▼
- ┌─────────────────────────────────────────────────────────────┐
- │                         KBVC                                │
- │                                                             │
- │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │
- │  │  Commit DAG │  │ Knowledge    │  │  Prompt &         │  │
- │  │  (SHA-256)  │  │ Graph        │  │  Retrieval Store  │  │
- │  │             │  │ (Relations)  │  │  (per commit)     │  │
- │  └─────────────┘  └──────────────┘  └───────────────────┘  │
- │                                                             │
- │  ┌──────────────────────────────────────────────────────┐   │
- │  │       VSAL — Vector Storage Abstraction Layer        │   │
- │  │  ChunkRecord ──► Qdrant / pgvector / Chroma /        │   │
- │  │                   Pinecone / LanceDB                 │   │
- │  └──────────────────────────────────────────────────────┘   │
- │                                                             │
- │  ┌──────────────────────────────────────────────────────┐   │
- │  │        Embed Backends                                │   │
- │  │  OpenAI · Gemini · Ollama · HuggingFace              │   │
- │  └──────────────────────────────────────────────────────┘   │
- └─────────────────────────────────────────────────────────────┘
-          │
-          ▼
- Your RAG / LLM Application
-```
-
----
+<img width="1536" height="1024" alt="ChatGPT Image Jun 3, 2026, 12_45_54 AM" src="https://github.com/user-attachments/assets/2d81ed3b-e5af-4f49-8133-ff828b1ced32" />
 
 ## Feature Matrix
 
