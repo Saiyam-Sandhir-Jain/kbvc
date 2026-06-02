@@ -201,6 +201,7 @@ def run_commit(repo: "KbvcRepo", message: str, dry_run: bool = False) -> None:
             to_version=new_version,
             chunks_reembedded=changed_idxs,
             reason=reason,
+            chunks=[{"index": c.index, "section": c.section} for c in new_chunks],
         )
 
     if dry_run:
@@ -273,11 +274,11 @@ def run_commit(repo: "KbvcRepo", message: str, dry_run: bool = False) -> None:
                 version=change.to_version,
                 commit_id=commit.commit_id,
                 reason=change.reason,
-                frontmatter={},     # performance: kept empty in v1 commit path
-                chunks=[],          # kbvc trace reads source file directly
+                frontmatter={},
+                chunks=change.chunks,        # {index, section} — enables kbvc explain section names
                 vector_ids=ko.vector_ids if ko else [],
                 changed_chunks=change.chunks_reembedded,
-                deleted_chunks=[],  # populated in future kbvc diff logic
+                deleted_chunks=[],
             ),
         )
 

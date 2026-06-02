@@ -1,40 +1,89 @@
-# kbvc/backends/vectordb/chroma.py
+# kbvc/backends/vectordb/chromadb_remote.py
 """
-ChromaDB LOCAL backend — embedded or persistent local instance.
+ChromaDB REMOTE backend — HTTP server or Chroma Cloud.
 
-This backend uses chromadb.PersistentClient (or EphemeralClient for testing)
-and runs entirely in-process.  No server, no API key, no network.
+This is a SEPARATE backend from `chroma` (which is local/embedded).
+Use this when you have:
 
-For a remote/server Chroma instance (self-hosted HTTP or Chroma Cloud),
-use the `chromadb_remote` backend:
-    kbvc config set vectordb.backend chromadb_remote
+  1. A self-hosted Chroma HTTP server (docker run chromadb/chroma):
+         kbvc config set vectordb.backend chromadb_remote
+         kbvc config set vectordb.url http://localhost:8000
+         kbvc config set vectordb.collection kbvc
+         # No API key needed for open HTTP server
 
-Configuration:
-    kbvc config set vectordb.backend chroma
-    kbvc config set vectordb.url ./chroma_db    # local directory path
+  2. Chroma Cloud (managed cloud service at trychroma.com):
+         kbvc config set vectordb.backend chromadb_remote
+         kbvc config set vectordb.mode cloud
+         kbvc config set vectordb.key ck-...
+         kbvc config set vectordb.tenant my-tenant
+         kbvc config set vectordb.database my-db
+         kbvc config set vectordb.collection kbvc
+
+The distinction from the local `chroma` backend:
+  - chroma           → chromadb.PersistentClient(path=...)  — no network
+  - chromadb_remote  → chromadb.HttpClient(...) or chromadb.CloudClient(...)
 
 Install:
-    pip install kbvc[chroma]
+    pip install kbvc[chroma]    # same package, different client class
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from kbvc.backends.vectordb import VectorDBBackend, ChunkRecord
 
 
-class ChromaBackend(VectorDBBackend):
-    """Local embedded ChromaDB (PersistentClient)."""
+class ChromaRemoteBackend(VectorDBBackend):
+    """
+    Remote ChromaDB backend supporting both self-hosted HTTP and Chroma Cloud.
 
-    def __init__(self, path: str = "./chroma_db") -> None:
+    Chroma Cloud is the managed cloud service at https://trychroma.com — it
+    requires a tenant, database, and API key.  Self-hosted just needs a URL.
+    """
+
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 8000,
+        ssl: bool = False,
+        api_key: Optional[str] = None,
+        tenant: Optional[str] = None,
+        database: Optional[str] = None,
+        mode: str = "http",  # "http" | "cloud"
+    ) -> None:
         try:
             import chromadb
         except ImportError:
             raise ImportError(
                 "chromadb not installed. Run: pip install kbvc[chroma]"
             )
-        self._client = chromadb.PersistentClient(path=path)
-        self._path = path
+        if mode == "cloud":
+            if not api_key:
+                raise ValueError(
+                    "Chroma Cloud requires an API key.\n"
+                    "Run: kbvc config set vectordb.key ck-..."
+                )
+            self._client = chromadb.CloudClient(
+                tenant=tenant or "default_tenant",
+                database=database or "default_database",
+                api_key=api_key,
+            )
+        else:
+            # Self-hosted HTTP server
+            headers: Dict[str, str] = {}
+            if api_key:
+                # Some self-hosted Chroma deployments use token auth
+                headers["Authorization"] = f"Bearer {api_key}"
+            self._client = chromadb.HttpClient(
+                host=host,
+                port=port,
+                ssl=ssl,
+                headers=headers or None,
+                tenant=tenant or "default_tenant",
+                database=database or "default_database",
+            )
+        self._mode = mode
 
     # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -67,11 +116,10 @@ class ChromaBackend(VectorDBBackend):
         metadata: Dict[str, Any],
     ) -> None:
         col = self._get_collection(collection)
-        safe_meta = self._build_metadata(metadata)
         col.upsert(
             ids=[id],
             embeddings=[vector],
-            metadatas=[safe_meta],
+            metadatas=[self._build_metadata(metadata)],
             documents=[""],
         )
 
@@ -87,12 +135,11 @@ class ChromaBackend(VectorDBBackend):
         )
 
     def delete(self, collection: str, id: str) -> None:
-        col = self._get_collection(collection)
-        col.delete(ids=[id])
+        self._get_collection(collection).delete(ids=[id])
 
     def delete_by_prefix(self, collection: str, id_prefix: str) -> None:
         col = self._get_collection(collection)
-        result = col.get(where_document=None)
+        result = col.get(include=[])
         ids_to_delete = [i for i in result["ids"] if i.startswith(id_prefix)]
         if ids_to_delete:
             col.delete(ids=ids_to_delete)
@@ -105,17 +152,18 @@ class ChromaBackend(VectorDBBackend):
         filter: Optional[Dict] = None,
     ) -> List[Dict]:
         col = self._get_collection(collection)
-        where = filter if filter else None
+        count = col.count()
+        if count == 0:
+            return []
         results = col.query(
             query_embeddings=[vector],
-            n_results=min(top_k, col.count() or 1),
-            where=where,
+            n_results=min(top_k, count),
+            where=filter if filter else None,
             include=["metadatas", "distances"],
         )
         output = []
         for i, doc_id in enumerate(results["ids"][0]):
             distance = results["distances"][0][i]
-            # Chroma cosine distance: 0=identical, 2=opposite. Convert to similarity.
             score = 1.0 - (distance / 2.0)
             meta = results["metadatas"][0][i] if results.get("metadatas") else {}
             output.append({"id": doc_id, "score": score, "metadata": meta})
@@ -132,14 +180,17 @@ class ChromaBackend(VectorDBBackend):
         ids = [i for i in result["ids"] if i.startswith(id_prefix)]
         if not ids:
             return
+        id_set = set(ids)
+        updated_ids = []
         updated_metas = []
         for i, doc_id in enumerate(result["ids"]):
-            if doc_id in ids:
+            if doc_id in id_set:
                 meta = dict(result["metadatas"][i] or {})
                 meta.update(patch)
+                updated_ids.append(doc_id)
                 updated_metas.append(self._build_metadata(meta))
-        if ids:
-            col.update(ids=ids, metadatas=updated_metas)
+        if updated_ids:
+            col.update(ids=updated_ids, metadatas=updated_metas)
 
     def exists_batch(self, collection: str, ids: List[str]) -> Dict[str, bool]:
         col = self._get_collection(collection)
@@ -148,11 +199,15 @@ class ChromaBackend(VectorDBBackend):
         return {id_: (id_ in found) for id_ in ids}
 
     def initialize_schema(self, collection: str, dimensions: int) -> None:
-        """Idempotently create or verify the Chroma collection."""
+        """Idempotently create or verify the remote Chroma collection."""
         self._get_collection(collection)
 
     def export_chunks(self, collection: str) -> List[ChunkRecord]:
-        """Export all documents from a Chroma collection as ChunkRecords."""
+        """Export all documents as ChunkRecords.
+
+        Note: For large collections this fetches everything in one call.
+        Chroma does not support cursor-based pagination yet.
+        """
         col = self._get_collection(collection)
         result = col.get(include=["embeddings", "metadatas"])
         records = []
@@ -175,6 +230,30 @@ class ChromaBackend(VectorDBBackend):
         return records
 
     @classmethod
-    def from_config(cls, config: dict) -> "ChromaBackend":
-        path = config.get("vectordb.url", "./chroma_db")
-        return cls(path=path)
+    def from_config(cls, config: dict) -> "ChromaRemoteBackend":
+        mode = config.get("vectordb.mode", "http")
+        api_key = config.get("vectordb.key", "") or None
+
+        if mode == "cloud":
+            return cls(
+                mode="cloud",
+                api_key=api_key,
+                tenant=config.get("vectordb.tenant"),
+                database=config.get("vectordb.database"),
+            )
+
+        # HTTP mode — parse host + port from vectordb.url
+        url = config.get("vectordb.url", "http://localhost:8000")
+        parsed = urlparse(url if "://" in url else f"http://{url}")
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 8000
+        ssl = parsed.scheme == "https"
+        return cls(
+            host=host,
+            port=port,
+            ssl=ssl,
+            api_key=api_key,
+            tenant=config.get("vectordb.tenant"),
+            database=config.get("vectordb.database"),
+            mode="http",
+        )

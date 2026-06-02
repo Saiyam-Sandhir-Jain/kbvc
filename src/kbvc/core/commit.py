@@ -32,6 +32,11 @@ class KOChange:
     to_version: int
     chunks_reembedded: List[int]
     reason: str = ""   # from kbvc annotate; empty string if not provided
+    chunks: List[dict] = None  # [{index, section}] — for version snapshot; not in commit hash
+
+    def __post_init__(self):
+        if self.chunks is None:
+            self.chunks = []
 
 
 # ---------------------------------------------------------------------------

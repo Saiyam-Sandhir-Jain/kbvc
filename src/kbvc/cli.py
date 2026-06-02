@@ -71,12 +71,16 @@ def init(name, no_git):
     info = repo.repo_info()
     click.echo(f"  repo_id:  {info['repo_id']}")
     click.echo(f"  format:   v{info['format_version']}")
+    if not no_git:
+        click.echo(f"  git:      initialised ✓")
     click.echo("")
     click.echo("Next steps:")
-    click.echo("  kbvc config set embed.backend openai")
+    click.echo("  kbvc config set embed.backend openai   # or gemini / ollama / huggingface")
     click.echo("  kbvc config set embed.key sk-...")
-    click.echo("  kbvc config set vectordb.backend qdrant")
-    click.echo("  kbvc config set vectordb.url http://localhost:6333")
+    click.echo("  kbvc config set vectordb.backend lancedb  # or qdrant / chroma / pgvector")
+    click.echo("  kbvc config set vectordb.url ./kbvc_lance")
+    click.echo("  kbvc backend init")
+    click.echo("  kbvc doctor")
 
 
 # ── config group ──────────────────────────────────────────────────────────────
@@ -359,7 +363,7 @@ def status():
             continue
         src = repo.root / ko.path
         if not src.exists():
-            click.echo(f"  ! deleted: {ko.path}")
+            click.echo(f"  ! deleted (on disk): {ko.path}")
             found_unstaged = True
             continue
         try:
@@ -373,10 +377,16 @@ def status():
             changed = compute_changed_chunks(chunks, ko.chunk_hashes)
             deleted = compute_deleted_chunks(chunks, ko.chunk_hashes)
             if changed or deleted:
-                click.echo(f"  M {ko.path}  (+{len(changed)} -{len(deleted)} chunks)")
+                n_ch = len(changed)
+                n_del = len(deleted)
+                click.echo(f"  M {ko.path}"
+                           + (f"  +{n_ch} chunk(s) changed" if n_ch else "")
+                           + (f"  -{n_del} chunk(s) removed" if n_del else ""))
+                click.echo(f"    → Run: kbvc add {ko.path}")
                 found_unstaged = True
-        except Exception:
-            pass
+        except Exception as exc:
+            click.echo(f"  ? {ko.path}  (could not diff: {exc})")
+            found_unstaged = True
     if not found_unstaged:
         click.echo("  (none)")
 
@@ -1202,15 +1212,29 @@ def doctor(knowledge):
     # Git
     import subprocess
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        # --git-dir works even on a brand-new repo with zero commits.
+        # --abbrev-ref HEAD fails with exit 128 when there are no commits yet.
+        subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
             cwd=repo.root,
             capture_output=True, text=True, check=True,
         )
-        git_branch = result.stdout.strip()
-        click.echo(f"✓  Git Repository  (branch: {git_branch})")
+        # Git repo exists — now try to get the branch (may be unborn on empty repo)
+        branch_result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo.root,
+            capture_output=True, text=True,
+        )
+        if branch_result.returncode == 0:
+            git_branch = branch_result.stdout.strip()
+            click.echo(f"✓  Git Repository  (branch: {git_branch})")
+        else:
+            # Repo initialised but no commits yet — HEAD is unborn, that's fine
+            click.echo("✓  Git Repository  (initialised, no commits yet)")
+    except FileNotFoundError:
+        click.echo("✗  Git Repository — git not found on PATH")
     except Exception:
-        click.echo("✗  Git Repository — not initialised or git not found")
+        click.echo("✗  Git Repository — not initialised (run: git init)")
 
     # Config
     config = repo.config()
