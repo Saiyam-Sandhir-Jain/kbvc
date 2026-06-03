@@ -46,7 +46,7 @@ import click
 # ── Main group ────────────────────────────────────────────────────────────────
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="kbvc")
+@click.version_option(version="0.1.2", prog_name="kbvc")
 def main():
     """KBVC — Git-native Knowledge Infrastructure Layer for AI systems."""
     pass
@@ -1552,6 +1552,50 @@ def ingest_notion_cmd(page_id, token, output_dir, force):
     click.echo(f"\nReview and commit:\n"
                f"  kbvc add {output_dir}/\n"
                f"  kbvc commit -m \"import notion {page_id[:8]}\"")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── ingest text ───────────────────────────────────────────────────────────────
+
+@ingest.command(name="text")
+@click.argument("file_path", metavar="FILE")
+@click.option("--id", "ko_id", default=None, help="KO id (default: derived from filename)")
+@click.option("--type", "ko_type", default="document", show_default=True,
+              help="KO type written to frontmatter")
+@click.option("--output-dir", default="ingested/text", show_default=True,
+              help="Directory to write the generated KO file into")
+@click.option("--force", is_flag=True, default=False, help="Overwrite existing output file")
+def ingest_text_cmd(file_path, ko_id, ko_type, output_dir, force):
+    """Ingest a plain text or Markdown file as a Knowledge Object.
+
+    \b
+    Reads FILE, wraps it in KBVC frontmatter, and writes a .md KO file
+    to OUTPUT_DIR ready for kbvc add + kbvc commit.
+
+    \b
+    Examples:
+        kbvc ingest text notes.txt
+        kbvc ingest text design.md --id system-design --type document
+        kbvc ingest text report.txt --output-dir knowledge/imported
+    """
+    from pathlib import Path as _Path
+    from kbvc.commands.ingest import ingest_text
+    try:
+        result = ingest_text(
+            file_path=_Path(file_path),
+            output_dir=_Path(output_dir),
+            ko_id=ko_id,
+            ko_type=ko_type,
+            force=force,
+        )
+    except (FileNotFoundError, FileExistsError) as exc:
+        raise click.ClickException(str(exc))
+    except Exception as exc:
+        raise click.ClickException(f"Ingestion failed: {exc}")
+
+    click.echo(f"  ✓  {result.output_file}")
+    click.echo(f"     ko_id: {result.ko_id}")
+    click.echo(f"\nNext: kbvc add {result.output_file}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

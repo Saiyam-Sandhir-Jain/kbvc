@@ -402,3 +402,52 @@ def _notion_blocks_to_md(blocks: list) -> str:
                 lines.append(text)
 
     return "\n\n".join(l for l in lines if l.strip())
+
+
+@dataclass
+class IngestTextResult:
+    ko_id: str
+    output_file: Path
+
+
+def ingest_text(
+    file_path: Path,
+    output_dir: Path,
+    ko_id: Optional[str] = None,
+    ko_type: str = "document",
+    force: bool = False,
+) -> IngestTextResult:
+    """
+    Ingest a plain text or Markdown file (.txt, .md) as a Knowledge Object.
+
+    Creates a properly-formatted KO file with YAML frontmatter, ready for
+    `kbvc add` and `kbvc commit`.
+
+    Parameters
+    ----------
+    file_path  : Source file (.txt or .md).
+    output_dir : Directory to write the KO into.
+    ko_id      : Optional KO id; derived from filename if omitted.
+    ko_type    : KO type written into frontmatter (default: "document").
+    force      : Overwrite existing output file if True.
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    raw_text = file_path.read_text(encoding="utf-8", errors="replace")
+
+    derived_id = ko_id or _slugify(file_path.stem)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{derived_id}.md"
+
+    if out_path.exists() and not force:
+        raise FileExistsError(
+            f"Output file already exists: {out_path}\n"
+            "Use --force to overwrite."
+        )
+
+    source_url = str(file_path.resolve())
+    content = _make_frontmatter(derived_id, source_url, derived_id, "file") + raw_text
+
+    out_path.write_text(content, encoding="utf-8")
+    return IngestTextResult(ko_id=derived_id, output_file=out_path)

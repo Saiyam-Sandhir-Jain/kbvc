@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-KBVC_VERSION = "0.1.0"
+KBVC_VERSION = "0.1.2"
 FORMAT_VERSION = "1"
 
 
@@ -217,7 +217,8 @@ class KbvcRepo:
 
         # ── Step 5: .gitignore — keep secrets out of git ───────────────────────
         block = (
-            "\n# KBVC — local secrets (never commit API keys)\n"
+            "\n# KBVC — never commit API keys or local config\n"
+            ".kbvc/config\n"
             ".kbvc/secrets\n"
         )
         gitignore = path / ".gitignore"
@@ -280,6 +281,10 @@ class KbvcRepo:
             h = ref_path.read_text(encoding="utf-8").strip()
             return h if h else None
         return None
+
+    # Alias kept for compatibility — prefer head_commit()
+    def head(self) -> Optional[str]:
+        return self.head_commit()
 
     def advance_head(self, commit_id: str) -> None:
         """Update the current branch ref to point to the new commit."""

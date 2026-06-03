@@ -101,13 +101,14 @@ def _prune_snapshots(repo: "KbvcRepo", dry_run: bool) -> None:
     reachable_retrievals: set[str] = set()
 
     try:
-        head_sha = repo.head()
+        head_sha = repo.head_commit()
     except Exception:
         click.echo("  No commits — nothing to prune.")
         return
 
+    from kbvc.core.commit import walk_dag
     try:
-        commits = CommitObject.all_from(repo.commits_dir, head_sha)
+        commits = walk_dag(repo.commits_dir, head_sha)
     except Exception:
         commits = []
 

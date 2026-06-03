@@ -139,6 +139,7 @@ def run_commit(repo: "KbvcRepo", message: str, dry_run: bool = False) -> None:
                     "metadata": {
                         "ko_id": ko_id,
                         "chunk_index": chunk.index,
+                        "chunk_hash": chunk.hash,
                         "section": chunk.section,
                         "branch": branch,
                         "ko_version": old_version + 1,

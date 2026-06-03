@@ -192,6 +192,7 @@ def run_push(
                         "metadata": {
                             "ko_id": ko_id,
                             "chunk_index": chunk.index,
+                            "chunk_hash": chunk.hash,
                             "section": chunk.section,
                             "branch": branch,
                             "ko_version": change.to_version,

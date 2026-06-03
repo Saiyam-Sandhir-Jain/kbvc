@@ -13,6 +13,23 @@ _Changes merged to `main` but not yet released._
 
 ---
 
+## [0.1.2] — 2026-06-03
+
+Stability patch — all bugs discovered during real-world pre-release testing.
+
+### Fixed
+
+- **`kbvc gc --snapshots` crashes with `AttributeError`** — `repo.head()` does not exist; method is `repo.head_commit()`. Also `CommitObject.all_from()` does not exist; replaced with `walk_dag()` from `kbvc.core.commit`. Both crash paths are now fixed; added `head()` alias to `KbvcRepo` for forward compatibility.
+- **`chunk_hash` always empty in vector metadata** — `kbvc commit` and `kbvc push` both omitted `chunk_hash` from the metadata dict written to the vector DB. `kbvc explain` and `kbvc gc` rely on this field being present. Fixed in both `commands/commit.py` and `commands/push.py`.
+- **`.gitignore` did not exclude `.kbvc/config`** — `kbvc init` only added `.kbvc/secrets` to `.gitignore`, but API keys are stored in `.kbvc/config`. Anyone who ran `git add .` could accidentally commit their API key. Fixed: `.kbvc/config` is now excluded on `kbvc init`.
+- **`kbvc doctor` false-negative for git on empty repo** — `git rev-parse --abbrev-ref HEAD` exits 128 on repos with no commits. Fixed to use `git rev-parse --git-dir` first, then get branch name separately with graceful "no commits yet" handling.
+
+### Changed
+
+- `kbvc init` output now confirms `git: initialised ✓` and shows `kbvc backend init` + `kbvc doctor` in next steps.
+
+---
+
 ## [0.1.0] — 2026-06-02
 
 First public release of KBVC — Knowledge Base Version Control.

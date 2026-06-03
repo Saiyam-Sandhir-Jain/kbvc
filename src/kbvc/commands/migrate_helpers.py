@@ -26,12 +26,18 @@ def load_backend(name: str, cfg: Dict[str, str]):
     if n in ("chroma", "chromadb"):
         from kbvc.backends.vectordb.chroma import ChromaBackend
         return ChromaBackend.from_config(cfg)
+    if n in ("chromadb_remote", "chroma_remote", "chroma_cloud"):
+        from kbvc.backends.vectordb.chromadb_remote import ChromaRemoteBackend
+        return ChromaRemoteBackend.from_config(cfg)
     if n in ("pinecone",):
         from kbvc.backends.vectordb.pinecone import PineconeBackend
         return PineconeBackend.from_config(cfg)
+    if n in ("lancedb", "lance"):
+        from kbvc.backends.vectordb.lancedb import LanceDBBackend
+        return LanceDBBackend.from_config(cfg)
     raise ValueError(
         f"Unknown backend: '{name}'.\n"
-        "Supported: qdrant, pgvector, chroma, pinecone"
+        "Supported: qdrant, pgvector, chroma, chromadb_remote, pinecone, lancedb"
     )
 
 
