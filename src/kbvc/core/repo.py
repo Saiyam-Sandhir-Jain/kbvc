@@ -91,6 +91,7 @@ class KbvcRepo:
         path.mkdir(parents=True, exist_ok=True)
 
         # ── Step 1: git init ──────────────────────────────────────────────────
+        initial_branch = "main"
         if not no_git and not (path / ".git").exists():
             try:
                 subprocess.run(
@@ -98,6 +99,22 @@ class KbvcRepo:
                     check=True,
                     capture_output=True,
                 )
+                # Detect what branch Git actually defaulted to.
+                # Older Git versions default to 'master', newer to 'main'.
+                # KBVC must use the same branch name or they'll be out of sync.
+                try:
+                    r = subprocess.run(
+                        ["git", "symbolic-ref", "--short", "HEAD"],
+                        cwd=path, capture_output=True, text=True, check=True,
+                    )
+                    initial_branch = r.stdout.strip() or "main"
+                except subprocess.CalledProcessError:
+                    # Fallback: read .git/HEAD directly
+                    git_head = path / ".git" / "HEAD"
+                    if git_head.exists():
+                        ref = git_head.read_text(encoding="utf-8").strip()
+                        if ref.startswith("ref: refs/heads/"):
+                            initial_branch = ref.replace("ref: refs/heads/", "")
             except FileNotFoundError:
                 # P1 pitfall: git not on PATH
                 raise RuntimeError(
@@ -136,11 +153,11 @@ class KbvcRepo:
             encoding="utf-8",
         )
 
-        # HEAD — points to main branch by default
-        (kbvc / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+        # HEAD — points to the same branch Git defaulted to
+        (kbvc / "HEAD").write_text(f"ref: refs/heads/{initial_branch}\n", encoding="utf-8")
 
-        # Empty main branch ref (no commit yet)
-        (kbvc / "refs" / "heads" / "main").write_text("", encoding="utf-8")
+        # Empty branch ref (no commit yet)
+        (kbvc / "refs" / "heads" / initial_branch).write_text("", encoding="utf-8")
 
         # Empty KO store
         (kbvc / "ko_store.json").write_text("[]", encoding="utf-8")

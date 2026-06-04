@@ -390,6 +390,22 @@ def status():
     if not found_unstaged:
         click.echo("  (none)")
 
+    # Untracked — Markdown files on disk not yet staged or committed
+    click.echo("\nUntracked files (not yet added to KBVC):")
+    tracked_paths = {Path(ko.path) for ko in ko_store.all()}
+    staged_paths  = {Path(p) for p in index.staged_files}
+    found_untracked = False
+    for md_file in sorted(repo.root.rglob("*.md")):
+        rel = md_file.relative_to(repo.root)
+        # Skip .kbvc internals
+        if rel.parts[0] == ".kbvc":
+            continue
+        if rel not in tracked_paths and rel not in staged_paths:
+            click.echo(f"  ? {rel}  (use: kbvc add {rel})")
+            found_untracked = True
+    if not found_untracked:
+        click.echo("  (none)")
+
 
 @main.command()
 @click.argument("commit_hash")

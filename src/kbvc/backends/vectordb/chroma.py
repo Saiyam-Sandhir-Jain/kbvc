@@ -158,7 +158,13 @@ class ChromaBackend(VectorDBBackend):
         records = []
         for i, doc_id in enumerate(result["ids"]):
             meta = (result["metadatas"] or [])[i] or {}
-            embedding = (result["embeddings"] or [])[i] if result.get("embeddings") else []
+            # Safe embedding extraction — handle NumPy arrays
+            embedding = []
+            if result.get("embeddings") is not None:
+                try:
+                    embedding = list(result["embeddings"][i])
+                except (IndexError, TypeError):
+                    pass
             records.append(ChunkRecord(
                 vector_id=doc_id,
                 branch=meta.get("branch", ""),
@@ -166,7 +172,7 @@ class ChromaBackend(VectorDBBackend):
                 ko_version=int(meta.get("ko_version", 0)),
                 chunk_index=int(meta.get("chunk_index", 0)),
                 chunk_hash=meta.get("chunk_hash", ""),
-                embedding=list(embedding),
+                embedding=embedding,
                 metadata={k: v for k, v in meta.items()
                           if k not in ("branch", "ko_id", "ko_version",
                                        "chunk_index", "chunk_hash", "created_at")},

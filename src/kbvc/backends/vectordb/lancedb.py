@@ -227,6 +227,13 @@ class LanceDBBackend(VectorDBBackend):
         rows = tbl.to_pandas().to_dict(orient="records")
         records = []
         for row in rows:
+            # Safe embedding extraction
+            embedding = []
+            if row.get("vector") is not None:
+                try:
+                    embedding = list(row["vector"])
+                except (TypeError, ValueError):
+                    pass
             records.append(ChunkRecord(
                 vector_id=str(row["vector_id"]),
                 branch=str(row.get("branch", "")),
@@ -234,7 +241,7 @@ class LanceDBBackend(VectorDBBackend):
                 ko_version=int(row.get("ko_version", 0)),
                 chunk_index=int(row.get("chunk_index", 0)),
                 chunk_hash=str(row.get("chunk_hash", "")),
-                embedding=list(row.get("vector", [])),
+                embedding=embedding,
                 metadata={
                     "commit_id": str(row.get("commit_id", "")),
                 },
