@@ -8,7 +8,6 @@ This is Saiyam's existing vector store; KBVC is a drop-in replacement for ingest
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Any, Dict, List, Optional
 
 from kbvc.backends.vectordb import VectorDBBackend
@@ -19,7 +18,7 @@ class PgvectorBackend(VectorDBBackend):
     def __init__(self, dsn: str) -> None:
         try:
             import psycopg2
-            from pgvector.psycopg2 import register_vector
+            import pgvector.psycopg2  # noqa: F401 — registers vector type
         except ImportError:
             raise ImportError(
                 "psycopg2-binary and pgvector not installed. "

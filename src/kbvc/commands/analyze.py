@@ -29,8 +29,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
     from kbvc.core.ko import KnowledgeObject
@@ -154,7 +153,7 @@ def _suggest_via_vectors(
     Use actual vector similarity to find related KOs.
     For each KO, embed its first chunk and query the DB for nearest neighbours.
     """
-    from kbvc.core.chunker import parse_frontmatter, split_into_chunks
+    from kbvc.core.chunker import split_into_chunks
 
     suggestions: List[RelationSuggestion] = []
     seen_pairs: set[frozenset] = set()

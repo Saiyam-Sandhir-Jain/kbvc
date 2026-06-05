@@ -91,7 +91,6 @@ def run_gc(repo: "KbvcRepo", dry_run: bool = False, prune_snapshots: bool = Fals
 def _prune_snapshots(repo: "KbvcRepo", dry_run: bool) -> None:
     """Remove graph/prompt/retrieval snapshot files not reachable from HEAD."""
     import click
-    from kbvc.core.commit import CommitObject
 
     click.echo("\nScanning snapshot reachability…")
 

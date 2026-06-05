@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kbvc"
-version = "0.1.2"
+version = "0.1.3"
 description = "Knowledge Operating System for AI/RAG — version control, semantic graph, full audit trails, and reproducible deployment for knowledge bases"
 readme = "README.md"
 license = { file = "LICENSE" }

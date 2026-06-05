@@ -46,7 +46,7 @@ import click
 # ── Main group ────────────────────────────────────────────────────────────────
 
 @click.group()
-@click.version_option(version="0.1.2", prog_name="kbvc")
+@click.version_option(version="0.1.3", prog_name="kbvc")
 def main():
     """KBVC — Git-native Knowledge Infrastructure Layer for AI systems."""
     pass
@@ -506,7 +506,6 @@ def checkout(commit_hash, file, ko_version):
 def diff_cmd(path_or_commit_a, commit_b, file):
     """Show chunk-level diff between current state and last commit, or two commits."""
     from kbvc.core.chunker import parse_frontmatter, split_into_chunks, compute_changed_chunks, compute_deleted_chunks
-    from kbvc.core.commit import CommitObject, walk_dag
     from kbvc.core.ko import KOStore
     from kbvc.core.repo import KbvcRepo, NotKBVCRepositoryError
     try:
@@ -847,7 +846,6 @@ def branch():
 @click.argument("name")
 def branch_create(name):
     """Create a new branch (copies current ko_store + graph)."""
-    import shutil
     from kbvc.core.repo import KbvcRepo, NotKBVCRepositoryError
     try:
         repo = KbvcRepo.require()

@@ -11,7 +11,7 @@ and avoid silent rate-limiting. Large commits are batched internally.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from kbvc.backends.embed import EmbedBackend
 

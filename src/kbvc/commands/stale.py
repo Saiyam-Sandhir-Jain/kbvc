@@ -18,7 +18,7 @@ where the referenced KO no longer exists (orphan relation detection).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kbvc.core.ko import KOStore

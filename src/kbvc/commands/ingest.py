@@ -23,9 +23,7 @@ Supported sources (v1):
 
 from __future__ import annotations
 
-import hashlib
 import re
-import textwrap
 import unicodedata
 from dataclasses import dataclass
 from datetime import date
