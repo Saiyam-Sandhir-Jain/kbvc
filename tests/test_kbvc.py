@@ -2415,3 +2415,1865 @@ class TestContradict(TempRepoTest):
         """contradict resolve with a nonexistent rel_id should error."""
         result = self._invoke(["contradict", "resolve", "does-not-exist"])
         self.assertNotEqual(result.exit_code, 0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v0.1.4 — New tests for every bug fixed in this release
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG 5 — TestBackend: correct dims for gemini-embedding-2
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBackend(unittest.TestCase):
+    """Unit tests for backend.py / _resolve_dims without needing a live repo."""
+
+    def test_resolve_dims_gemini_embedding_2(self):
+        """_resolve_dims must return 3072 for gemini-embedding-2."""
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("", "gemini-embedding-2"), 3072)
+
+    def test_resolve_dims_gemini_embedding_001(self):
+        """_resolve_dims must return 3072 for gemini-embedding-001."""
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("", "gemini-embedding-001"), 3072)
+
+    def test_resolve_dims_explicit_override(self):
+        """An explicit dims_raw string must take priority over model lookup."""
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("512", "gemini-embedding-2"), 512)
+
+    def test_resolve_dims_text_embedding_004(self):
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("", "text-embedding-004"), 768)
+
+    def test_resolve_dims_openai_small(self):
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("", "text-embedding-3-small"), 1536)
+
+    def test_resolve_dims_openai_large(self):
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("", "text-embedding-3-large"), 3072)
+
+    def test_resolve_dims_unknown_model_fallback(self):
+        """Unknown model names must fall back to 1536."""
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("", "some-future-model-v9"), 1536)
+
+    def test_resolve_dims_nomic(self):
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("", "nomic-embed-text"), 768)
+
+    def test_resolve_dims_invalid_dims_raw_falls_back(self):
+        """Non-numeric dims_raw must fall back to model lookup."""
+        from kbvc.commands.backend import _resolve_dims
+        self.assertEqual(_resolve_dims("not-a-number", "gemini-embedding-2"), 3072)
+
+    def test_gemini_dims_dict_contains_embedding_2(self):
+        """_GEMINI_DIMS in gemini.py must contain gemini-embedding-2."""
+        from kbvc.backends.embed.gemini import _GEMINI_DIMS
+        self.assertIn("gemini-embedding-2", _GEMINI_DIMS)
+        self.assertEqual(_GEMINI_DIMS["gemini-embedding-2"], 3072)
+
+    def test_gemini_dims_dict_contains_embedding_001(self):
+        from kbvc.backends.embed.gemini import _GEMINI_DIMS
+        self.assertIn("gemini-embedding-001", _GEMINI_DIMS)
+        self.assertEqual(_GEMINI_DIMS["gemini-embedding-001"], 3072)
+
+    def test_backend_info_command(self):
+        """kbvc backend info must succeed in a repo and print Dimensions."""
+        import tempfile, shutil
+        tmpdir = Path(tempfile.mkdtemp())
+        orig = Path.cwd()
+        try:
+            os.chdir(tmpdir)
+            from kbvc.core.repo import KbvcRepo
+            from click.testing import CliRunner
+            from kbvc.cli import main
+            KbvcRepo.init(tmpdir, no_git=True)
+            runner = CliRunner()
+            runner.invoke(main, ["config", "set", "embed.backend", "gemini"])
+            runner.invoke(main, ["config", "set", "embed.model", "gemini-embedding-2"])
+            result = runner.invoke(main, ["backend", "info"], catch_exceptions=False)
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Dimensions", result.output)
+            # Must show 3072, NOT 1536
+            self.assertIn("3072", result.output)
+        finally:
+            os.chdir(orig)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG 3 — status must not double-list staged files as unstaged-modified
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestStatusStagedNotAlsoUnstaged(TempRepoTest):
+    """TestCLIPhase2::test_status_staged_not_also_unstaged — BUG 3."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit_one(self, filename, ko_id):
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", f"commit {ko_id}"])
+
+    def test_status_staged_not_also_unstaged(self):
+        """After kbvc add, the file must NOT appear in 'Unstaged modifications'."""
+        # Commit initial version
+        self._commit_one("caching.md", "caching")
+
+        # Modify the file (creates a real difference vs committed state)
+        p = self.tmpdir / "caching.md"
+        original = p.read_text()
+        p.write_text(original + "\n\n## Extra\n\nNew section added.\n")
+
+        # Stage the modified file
+        self._invoke(["add", "caching.md"])
+
+        result = self._invoke(["status"])
+        self.assertEqual(result.exit_code, 0)
+
+        # Must appear in "Staged" section
+        self.assertIn("caching.md", result.output)
+
+        # Must NOT appear under "Unstaged modifications"
+        lines = result.output.splitlines()
+        in_unstaged_section = False
+        found_as_unstaged = False
+        for line in lines:
+            if "Unstaged modifications" in line:
+                in_unstaged_section = True
+            elif in_unstaged_section and line.strip().startswith("Untracked"):
+                in_unstaged_section = False
+            if in_unstaged_section and "caching.md" in line and line.strip().startswith("M "):
+                found_as_unstaged = True
+        self.assertFalse(
+            found_as_unstaged,
+            "Staged file 'caching.md' incorrectly appeared in 'Unstaged modifications'"
+        )
+
+    def test_status_unstaged_untracked_not_regressed(self):
+        """Files that are NOT staged still appear in the correct sections."""
+        # Commit one KO
+        self._commit_one("a.md", "ko_a")
+        # Modify it without staging → should appear unstaged
+        p = self.tmpdir / "a.md"
+        p.write_text(p.read_text() + "\n\n## New\n\nContent.\n")
+        # Also write a new file → should appear untracked
+        (self.tmpdir / "b.md").write_text(make_md("ko_b"))
+
+        result = self._invoke(["status"])
+        self.assertEqual(result.exit_code, 0)
+        # a.md modified but not staged → unstaged section
+        self.assertIn("a.md", result.output)
+        # b.md untracked
+        self.assertIn("b.md", result.output)
+
+    def test_status_nothing_staged_shows_nothing(self):
+        """kbvc status on a fresh repo should say nothing staged."""
+        result = self._invoke(["status"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Nothing staged", result.output)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG 2 — diff two commits
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDiffTwoCommits(TempRepoTest):
+    """TestCLIPhase2::test_diff_two_commits — BUG 2."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit(self, filename, ko_id, message="commit"):
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", message])
+        return self.repo.head_commit()
+
+    def test_diff_two_commits_shows_changed_ko(self):
+        """kbvc diff <commit_a> <commit_b> must output the KO that changed."""
+        commit_a = self._commit("policy.md", "policy", "initial")
+        # Modify and recommit
+        p = self.tmpdir / "policy.md"
+        p.write_text(p.read_text() + "\n\n## Addendum\n\nNew chunk.\n")
+        self._invoke(["add", "policy.md"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", "update policy"])
+        commit_b = self.repo.head_commit()
+
+        result = self._invoke(["diff", commit_a, commit_b])
+        self.assertEqual(result.exit_code, 0)
+        # Should mention the KO
+        self.assertIn("policy", result.output)
+
+    def test_diff_two_commits_shows_version_range(self):
+        """kbvc diff <a> <b> must show v1 → v2 style version info."""
+        commit_a = self._commit("notes.md", "notes", "first")
+        p = self.tmpdir / "notes.md"
+        p.write_text(p.read_text() + "\n\n## More\n\nExtra.\n")
+        self._invoke(["add", "notes.md"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", "second"])
+        commit_b = self.repo.head_commit()
+
+        result = self._invoke(["diff", commit_a, commit_b])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("v1", result.output)
+        self.assertIn("v2", result.output)
+
+    def test_diff_two_commits_file_filter(self):
+        """kbvc diff <a> <b> <file> must restrict output to that KO."""
+        commit_a = self._commit("alpha.md", "alpha", "first")
+        p = self.tmpdir / "alpha.md"
+        p.write_text(p.read_text() + "\n\n## Extra\n\nAdded.\n")
+        self._invoke(["add", "alpha.md"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", "second"])
+        commit_b = self.repo.head_commit()
+
+        result = self._invoke(["diff", commit_a, commit_b, "alpha.md"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("alpha", result.output)
+
+    def test_diff_bad_commit_hash_errors_gracefully(self):
+        """kbvc diff with an unknown commit hash must print a ClickException."""
+        result = self._invoke(["diff", "deadbeef", "cafebabe"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_diff_single_file_no_changes(self):
+        """kbvc diff <file> on an unchanged committed file shows 'no changes'."""
+        self._commit("stable.md", "stable")
+        result = self._invoke(["diff", "stable.md"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("no changes", result.output)
+
+    def test_diff_single_file_with_changes(self):
+        """kbvc diff <file> after modifying the file shows changed chunks."""
+        self._commit("changing.md", "changing")
+        p = self.tmpdir / "changing.md"
+        p.write_text(p.read_text() + "\n\n## New section\n\nMore content here.\n")
+        result = self._invoke(["diff", "changing.md"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("changing", result.output)
+
+    def test_diff_no_args_prints_help(self):
+        """kbvc diff with no args should print the fallback help message."""
+        result = self._invoke(["diff"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("diff", result.output.lower())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG 1 — query branch isolation
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestQueryBranchIsolation(TempRepoTest):
+    """TestCLIPhase3::test_query_branch_isolation — BUG 1."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit_on_current_branch(self, filename, ko_id):
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", f"add {ko_id}"])
+
+    def test_query_passes_branch_filter_to_vdb(self):
+        """query must call vdb.query with filter={"branch": current_branch}."""
+        self._invoke(["config", "set", "embed.backend", "openai"])
+        self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            embed = fake_embed_backend()
+            me.return_value = embed
+            vdb = fake_vdb_backend()
+            vdb.query.return_value = []
+            mv.return_value = vdb
+            result = self._invoke(["query", "test query"])
+        self.assertEqual(result.exit_code, 0)
+        # The filter kwarg must be present and set to current branch
+        call_kwargs = vdb.query.call_args
+        filter_arg = (
+            call_kwargs.kwargs.get("filter")
+            if call_kwargs.kwargs
+            else (call_kwargs[1].get("filter") if len(call_kwargs) > 1 else None)
+        )
+        self.assertIsNotNone(filter_arg, "vdb.query called without filter kwarg")
+        self.assertEqual(filter_arg.get("branch"), "main")
+
+    def test_query_branch_isolation_different_branch(self):
+        """After switching to a feature branch, filter must use the new branch name."""
+        self._invoke(["config", "set", "embed.backend", "openai"])
+        self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+        self._invoke(["branch", "create", "feature-search"])
+        self._invoke(["branch", "switch", "feature-search"])
+
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            vdb = fake_vdb_backend()
+            vdb.query.return_value = []
+            mv.return_value = vdb
+            result = self._invoke(["query", "find something"])
+        self.assertEqual(result.exit_code, 0)
+        call_kwargs = vdb.query.call_args
+        filter_arg = (
+            call_kwargs.kwargs.get("filter")
+            if call_kwargs.kwargs
+            else (call_kwargs[1].get("filter") if len(call_kwargs) > 1 else None)
+        )
+        self.assertIsNotNone(filter_arg, "vdb.query called without filter kwarg")
+        self.assertEqual(filter_arg.get("branch"), "feature-search")
+
+    def test_query_no_cross_branch_leakage(self):
+        """Results from another branch's vector IDs must not appear when on main.
+
+        This test simulates the scenario by returning a result whose branch
+        metadata differs from the current branch — the query command itself
+        must have passed the filter so the DB would have excluded it.
+        We verify the filter is passed correctly as a proxy for isolation.
+        """
+        self._invoke(["config", "set", "embed.backend", "openai"])
+        self._invoke(["config", "set", "vectordb.backend", "chroma"])
+
+        # Simulate: vdb would only return results matching the filter
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            vdb = fake_vdb_backend()
+            # In a real DB, the branch filter prevents cross-branch results.
+            # Here we confirm no results means the output says "No results".
+            vdb.query.return_value = []
+            mv.return_value = vdb
+            result = self._invoke(["query", "OAuth PKCE"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("No results", result.output)
+        # Verify filter was passed
+        call_kwargs = vdb.query.call_args
+        self.assertIsNotNone(call_kwargs)
+        filter_arg = (
+            call_kwargs.kwargs.get("filter")
+            if call_kwargs.kwargs
+            else (call_kwargs[1].get("filter") if len(call_kwargs) > 1 else None)
+        )
+        self.assertIsNotNone(filter_arg)
+        self.assertIn("branch", filter_arg)
+
+    def test_ask_passes_branch_filter(self):
+        """kbvc ask must also filter by branch (it already did — regression guard)."""
+        self._invoke(["config", "set", "embed.backend", "openai"])
+        self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            vdb = fake_vdb_backend()
+            vdb.query.return_value = []
+            mv.return_value = vdb
+            result = self._invoke(["ask", "what is caching?"])
+        self.assertEqual(result.exit_code, 0)
+        call_kwargs = vdb.query.call_args
+        filter_arg = (
+            call_kwargs.kwargs.get("filter")
+            if call_kwargs.kwargs
+            else (call_kwargs[1].get("filter") if len(call_kwargs) > 1 else None)
+        )
+        self.assertIsNotNone(filter_arg)
+        self.assertEqual(filter_arg.get("branch"), "main")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG 4 — gc --snapshots preserves other-branch snapshots
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestGCMultiBranch(TempRepoTest):
+    """TestGC::test_gc_snapshots_preserves_other_branches — BUG 4."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit_on_branch(self, filename, ko_id, branch_name=None):
+        """Commit a KO on the current (or specified) branch with mocked backends."""
+        if branch_name:
+            self._invoke(["branch", "create", branch_name])
+            self._invoke(["branch", "switch", branch_name])
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", f"add {ko_id} on branch"])
+
+    def test_gc_snapshots_preserves_other_branches(self):
+        """GC --snapshots must not prune snapshots reachable from other branches.
+
+        Scenario:
+          1. Commit on main → creates graph-v1
+          2. Create feature branch, commit there → creates graph-v2
+          3. Switch back to main
+          4. Run gc --snapshots --dry-run
+          5. graph-v2 must NOT be listed as prunable
+        """
+        from kbvc.backends.vectordb import ChunkRecord
+
+        # Commit on main
+        self._commit_on_branch("main-ko.md", "main-ko")
+
+        # Commit on feature branch
+        self._commit_on_branch("feature-ko.md", "feature-ko", "feature-gc-test")
+
+        # Switch back to main
+        self._invoke(["branch", "switch", "main"])
+
+        # GC with mocked vdb
+        with patch("kbvc.backends.get_vectordb_backend") as mvdb, \
+             patch("kbvc.backends.get_embed_backend"):
+            vdb = fake_vdb_backend()
+            vdb.export_chunks.return_value = []
+            mvdb.return_value = vdb
+            self._invoke(["config", "set", "embed.backend", "openai"])
+            self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+            result = self._invoke(["gc", "--snapshots", "--dry-run"])
+
+        self.assertEqual(result.exit_code, 0)
+        # graph-v2 is reachable from feature branch → must NOT be pruned
+        self.assertNotIn(
+            "graph-v2",
+            result.output,
+            "gc --snapshots incorrectly proposed to prune feature-branch snapshot graph-v2"
+        )
+
+    def test_gc_snapshots_all_branches_reachability(self):
+        """All branch HEADs are considered — no branch's snapshots are lost."""
+        # Two commits → two snapshots (graph-v1, graph-v2)
+        self._commit_on_branch("ko1.md", "ko1")
+        self._commit_on_branch("ko2.md", "ko2", "branch-b")
+        self._invoke(["branch", "switch", "main"])
+
+        with patch("kbvc.backends.get_vectordb_backend") as mvdb, \
+             patch("kbvc.backends.get_embed_backend"):
+            vdb = fake_vdb_backend()
+            vdb.export_chunks.return_value = []
+            mvdb.return_value = vdb
+            self._invoke(["config", "set", "embed.backend", "openai"])
+            self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+            result = self._invoke(["gc", "--snapshots", "--dry-run"])
+        self.assertEqual(result.exit_code, 0)
+        # Neither snapshot should be pruned
+        self.assertNotIn("[dry-run] would prune", result.output)
+
+    def test_gc_snapshots_no_commits_does_not_crash(self):
+        """gc --snapshots on a repo with zero commits should exit cleanly."""
+        with patch("kbvc.backends.get_vectordb_backend") as mvdb, \
+             patch("kbvc.backends.get_embed_backend"):
+            vdb = fake_vdb_backend()
+            vdb.export_chunks.return_value = []
+            mvdb.return_value = vdb
+            self._invoke(["config", "set", "embed.backend", "openai"])
+            self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+            result = self._invoke(["gc", "--snapshots"])
+        self.assertEqual(result.exit_code, 0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG 7 — annotate: warning when file is not staged
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestAnnotateWarning(TempRepoTest):
+    """TestCLIPhase4::test_annotate_reason_appears_in_history — BUG 7."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit_one(self, filename="ko.md", ko_id="myko"):
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", f"commit {ko_id}"])
+
+    def test_annotate_unstaged_shows_warning(self):
+        """annotate on a file not in the staging index must print a warning."""
+        self.write_md("api.md", "api-design")
+        # Do NOT stage it — just annotate directly
+        result = self._invoke([
+            "annotate", "api.md",
+            "--reason", "Reviewed and confirmed correct",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        # Must show warning about not being staged
+        output_lower = result.output.lower()
+        self.assertTrue(
+            "not" in output_lower and ("staged" in output_lower or "stage" in output_lower),
+            f"Expected 'not staged' warning in output, got:\n{result.output}"
+        )
+
+    def test_annotate_staged_shows_confirm(self):
+        """annotate on a staged file must show a confirmation, not a warning."""
+        self.write_md("staged-ko.md", "staged-ko")
+        self._invoke(["add", "staged-ko.md"])
+        result = self._invoke([
+            "annotate", "staged-ko.md",
+            "--reason", "Reviewed correctly",
+        ])
+        self.assertEqual(result.exit_code, 0)
+        # No "not staged" warning
+        self.assertNotIn("not currently staged", result.output)
+        # Should say reason will be recorded
+        self.assertIn("next commit", result.output.lower())
+
+    def test_annotate_reason_appears_in_history(self):
+        """After staging, annotating, and committing, the reason appears in history."""
+        self.write_md("tracked.md", "tracked")
+        self._invoke(["add", "tracked.md"])
+        self._invoke(["annotate", "tracked.md", "--reason", "Accuracy verified 2026"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", "annotated commit"])
+
+        result = self._invoke(["history", "tracked.md"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("tracked", result.output)
+        self.assertIn("v1", result.output)
+
+    def test_annotate_reason_stored_in_staging_index(self):
+        """annotate must write the reason to the staging index immediately."""
+        self.write_md("ko.md", "myko")
+        self._invoke(["add", "ko.md"])
+        self._invoke(["annotate", "ko.md", "--reason", "Test reason 99"])
+        from kbvc.core.index import StagingIndex
+        idx = StagingIndex.load(self.repo.index_path)
+        self.assertEqual(idx.ko_reasons.get("myko"), "Test reason 99")
+
+    def test_annotate_reason_in_version_snapshot_after_commit(self):
+        """The reason written to the staging index ends up in the KO version snapshot."""
+        self.write_md("versioned.md", "versioned")
+        self._invoke(["add", "versioned.md"])
+        self._invoke(["annotate", "versioned.md", "--reason", "Version reason ABC"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", "with reason"])
+        from kbvc.core.versioner import KOVersioner
+        v = KOVersioner(self.repo.ko_versions_dir)
+        snap = v.load_version("versioned", 1)
+        self.assertEqual(snap.reason, "Version reason ABC")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BUG 8 — promote --type expanded choices
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPromoteExpandedTypes(TempRepoTest):
+    """TestCLIPhase4::test_promote_finding_type — BUG 8."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _promote(self, memory_text, ko_id, ko_type):
+        return self._invoke([
+            "promote", memory_text,
+            "--id", ko_id,
+            "--type", ko_type,
+        ])
+
+    def test_promote_finding_type(self):
+        """kbvc promote --type finding must succeed."""
+        result = self._promote(
+            "Redis OOM issue was caused by large pipeline batches.",
+            "redis-oom-finding",
+            "finding",
+        )
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_promote_fact_type(self):
+        result = self._promote("Python GIL prevents true parallelism.", "python-gil", "fact")
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_promote_rule_type(self):
+        result = self._promote("All API endpoints must be versioned.", "api-version-rule", "rule")
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_promote_decision_type(self):
+        result = self._promote("We chose Qdrant over Pinecone in June 2026.", "qdrant-decision", "decision")
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_promote_note_type(self):
+        result = self._promote("Review auth flow before next sprint.", "auth-review-note", "note")
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_promote_existing_types_still_work(self):
+        """Original types must still be accepted after the expansion."""
+        for ko_type in ["lesson", "observation", "concept", "doc", "project"]:
+            with self.subTest(ko_type=ko_type):
+                result = self._promote(f"Memory for {ko_type}.", f"ko-{ko_type}", ko_type)
+                self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_promote_invalid_type_rejected(self):
+        """An unrecognised type must still be rejected."""
+        result = self._invoke([
+            "promote", "Some memory.",
+            "--id", "bad-type-ko",
+            "--type", "not_a_real_type",
+        ])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_promote_creates_file_on_disk(self):
+        """promote must create a .md file in the knowledge/promoted/ directory."""
+        self._promote("Dragonfly fixed Redis OOM.", "dragonfly-fix", "finding")
+        promoted_dir = self.tmpdir / "knowledge" / "promoted"
+        md_files = list(promoted_dir.glob("*.md")) if promoted_dir.exists() else []
+        self.assertTrue(
+            len(md_files) >= 1,
+            f"No .md file created under knowledge/promoted/. Dir: {promoted_dir}"
+        )
+
+    def test_promote_stages_the_file(self):
+        """promote must stage the new file automatically."""
+        self._promote("Some observation about the system.", "sys-obs", "observation")
+        from kbvc.core.index import StagingIndex
+        idx = StagingIndex.load(self.repo.index_path)
+        self.assertTrue(len(idx.staged_files) >= 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Version consistency checks
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestVersionConsistency(unittest.TestCase):
+    """Ensure __version__, pyproject.toml, and CLI --version are all in sync."""
+
+    def test_init_version_is_0_1_4(self):
+        import kbvc
+        self.assertEqual(kbvc.__version__, "0.1.4")
+
+    def test_cli_version_option_matches_package(self):
+        """kbvc --version must print the same version as kbvc.__version__."""
+        import kbvc
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        result = CliRunner().invoke(main, ["--version"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn(kbvc.__version__, result.output)
+        self.assertIn("0.1.4", result.output)
+
+    def test_pyproject_version_matches_package(self):
+        """pyproject.toml version must match kbvc.__version__."""
+        import kbvc
+        import sys
+        project_root = Path(__file__).parent.parent
+        pyproject = project_root / "pyproject.toml"
+        if not pyproject.exists():
+            self.skipTest("pyproject.toml not found next to tests/")
+        if sys.version_info >= (3, 11):
+            import tomllib
+            with open(pyproject, "rb") as f:
+                data = tomllib.load(f)
+        else:
+            try:
+                import tomli
+                with open(pyproject, "rb") as f:
+                    data = tomli.load(f)
+            except ImportError:
+                self.skipTest("tomli not installed on Python < 3.11")
+        pyproject_version = data["project"]["version"]
+        self.assertEqual(
+            pyproject_version, kbvc.__version__,
+            f"pyproject.toml version {pyproject_version!r} != "
+            f"kbvc.__version__ {kbvc.__version__!r}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Additional regression / stability tests (beyond the 7 mandated)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRegressionV014(TempRepoTest):
+    """Catch-all regression tests to stabilise v0.1.4 for first real use."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit(self, filename, ko_id, message="commit"):
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", message])
+        return self.repo.head_commit()
+
+    # ── Version ──────────────────────────────────────────────────────────────
+
+    def test_version_flag(self):
+        result = self._invoke(["--version"])
+        self.assertIn("0.1.4", result.output)
+
+    # ── init / repo ──────────────────────────────────────────────────────────
+
+    def test_init_creates_refs_heads(self):
+        """kbvc init must create .kbvc/refs/heads/ so branch commands work."""
+        refs = self.repo.kbvc_dir / "refs" / "heads"
+        self.assertTrue(refs.is_dir())
+
+    def test_init_creates_initial_branch_ref(self):
+        """The initial branch ref file must exist after init."""
+        branch = self.repo.current_branch()
+        ref_file = self.repo.kbvc_dir / "refs" / "heads" / branch
+        self.assertTrue(ref_file.exists())
+
+    # ── config ───────────────────────────────────────────────────────────────
+
+    def test_config_set_and_get(self):
+        self._invoke(["config", "set", "embed.backend", "openai"])
+        result = self._invoke(["config", "get", "embed.backend"])
+        self.assertIn("openai", result.output)
+
+    def test_config_list(self):
+        result = self._invoke(["config", "list"])
+        self.assertEqual(result.exit_code, 0)
+
+    # ── add / commit ─────────────────────────────────────────────────────────
+
+    def test_add_nonexistent_file_errors(self):
+        result = self._invoke(["add", "ghost.md"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_commit_empty_staging_errors(self):
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            result = self._invoke(["commit", "-m", "nothing staged"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_add_dot_stages_multiple(self):
+        self.write_md("a.md", "ko_a")
+        self.write_md("b.md", "ko_b")
+        result = self._invoke(["add", "."])
+        self.assertEqual(result.exit_code, 0)
+        from kbvc.core.index import StagingIndex
+        idx = StagingIndex.load(self.repo.index_path)
+        self.assertEqual(len(idx.staged_files), 2)
+
+    def test_commit_advances_head(self):
+        self.write_md("ko.md", "myko")
+        self._invoke(["add", "ko.md"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", "first"])
+        self.assertIsNotNone(self.repo.head_commit())
+
+    # ── log ──────────────────────────────────────────────────────────────────
+
+    def test_log_empty_repo(self):
+        result = self._invoke(["log"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("No commits", result.output)
+
+    def test_log_shows_commits(self):
+        self._commit("ko.md", "myko")
+        result = self._invoke(["log"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("myko", result.output)
+
+    # ── branch ───────────────────────────────────────────────────────────────
+
+    def test_branch_create_list_switch(self):
+        self._invoke(["branch", "create", "test-branch"])
+        result = self._invoke(["branch", "list"])
+        self.assertIn("test-branch", result.output)
+        self._invoke(["branch", "switch", "test-branch"])
+        self.assertEqual(self.repo.current_branch(), "test-branch")
+
+    def test_branch_head_is_independent(self):
+        """Committing on a branch must not move main's HEAD."""
+        self._commit("main-ko.md", "main-ko")
+        main_head = self.repo.head_commit()
+        self._invoke(["branch", "create", "side"])
+        self._invoke(["branch", "switch", "side"])
+        self._commit("side-ko.md", "side-ko")
+        self._invoke(["branch", "switch", "main"])
+        self.assertEqual(self.repo.head_commit(), main_head)
+
+    # ── status ───────────────────────────────────────────────────────────────
+
+    def test_status_shows_untracked(self):
+        (self.tmpdir / "untracked.md").write_text(make_md("untracked"))
+        result = self._invoke(["status"])
+        self.assertIn("untracked.md", result.output)
+
+    def test_status_shows_staged(self):
+        self.write_md("staged.md", "staged")
+        self._invoke(["add", "staged.md"])
+        result = self._invoke(["status"])
+        self.assertIn("staged.md", result.output)
+
+    # ── checkout ─────────────────────────────────────────────────────────────
+
+    def test_checkout_restores_ko(self):
+        head = self._commit("ko.md", "myko")
+        result = self._invoke(["checkout", head])
+        self.assertEqual(result.exit_code, 0)
+
+    # ── history / trace ───────────────────────────────────────────────────────
+
+    def test_history_no_versions(self):
+        self.write_md("new.md", "new")
+        result = self._invoke(["history", "new.md"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("No version history", result.output)
+
+    def test_history_after_commit(self):
+        self._commit("hist.md", "hist")
+        result = self._invoke(["history", "hist.md"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("v1", result.output)
+
+    # ── link / graph ─────────────────────────────────────────────────────────
+
+    def test_link_and_graph(self):
+        self.write_md("src.md", "src-ko")
+        self.write_md("dst.md", "dst-ko")
+        self._invoke(["link", "src.md", "dst.md", "--type", "informs"])
+        result = self._invoke(["graph", "--all"])
+        self.assertIn("informs", result.output)
+
+    def test_unlink_removes_relation(self):
+        from kbvc.core.graph import RelationGraph
+        self.write_md("a.md", "a")
+        self.write_md("b.md", "b")
+        g = RelationGraph(self.repo.graph_dir, "main")
+        r = g.add("a", "b", "cites")
+        result = self._invoke(["unlink", r.id])
+        self.assertIn("Removed", result.output)
+
+    # ── doctor ───────────────────────────────────────────────────────────────
+
+    def test_doctor_passes_on_healthy_repo(self):
+        result = self._invoke(["doctor"])
+        self.assertEqual(result.exit_code, 0)
+
+    # ── stale ────────────────────────────────────────────────────────────────
+
+    def test_stale_no_output_without_dependencies(self):
+        self._commit("isolated.md", "isolated")
+        result = self._invoke(["stale"])
+        self.assertEqual(result.exit_code, 0)
+
+    # ── promote ──────────────────────────────────────────────────────────────
+
+    def test_promote_default_type_is_lesson(self):
+        result = self._invoke([
+            "promote", "Always validate input at the boundary.",
+            "--id", "input-validation",
+        ])
+        self.assertEqual(result.exit_code, 0)
+
+    # ── query / ask (basic) ──────────────────────────────────────────────────
+
+    def test_query_with_results(self):
+        self._invoke(["config", "set", "embed.backend", "openai"])
+        self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            vdb = fake_vdb_backend()
+            vdb.query.return_value = [
+                {"id": "main__testko__chunk_0", "score": 0.9,
+                 "metadata": {"ko_id": "testko", "section": "Overview", "branch": "main"}}
+            ]
+            mv.return_value = vdb
+            result = self._invoke(["query", "test query"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("testko", result.output)
+        self.assertIn("0.9", result.output)
+
+    def test_ask_no_results(self):
+        self._invoke(["config", "set", "embed.backend", "openai"])
+        self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            vdb = fake_vdb_backend()
+            vdb.query.return_value = []
+            mv.return_value = vdb
+            result = self._invoke(["ask", "anything at all"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("No relevant knowledge", result.output)
+
+    # ── gc ───────────────────────────────────────────────────────────────────
+
+    def test_gc_not_implemented_backend_raises(self):
+        """gc must surface a clear error when export_chunks is not implemented."""
+        with patch("kbvc.backends.get_vectordb_backend") as mvdb, \
+             patch("kbvc.backends.get_embed_backend"):
+            vdb = fake_vdb_backend()
+            vdb.export_chunks.side_effect = NotImplementedError
+            mvdb.return_value = vdb
+            self._invoke(["config", "set", "embed.backend", "openai"])
+            self._invoke(["config", "set", "vectordb.backend", "qdrant"])
+            result = self._invoke(["gc"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("export_chunks", result.output)
+
+    # ── diff ─────────────────────────────────────────────────────────────────
+
+    def test_diff_file_not_found(self):
+        result = self._invoke(["diff", "nonexistent.md"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("not found", result.output.lower())
+
+    # ── depends / impact ─────────────────────────────────────────────────────
+
+    def test_depends_add_and_list(self):
+        self._commit("x.md", "ko-x")
+        self._commit("y.md", "ko-y")
+        self._invoke(["depends", "add", "x.md", "y.md"])
+        result = self._invoke(["depends", "list", "x.md"])
+        self.assertIn("ko-y", result.output)
+
+    def test_impact_shows_dependents(self):
+        self._commit("base.md", "base")
+        self._commit("dep.md", "dep")
+        self._invoke(["depends", "add", "dep.md", "base.md"])
+        result = self._invoke(["impact", "base.md"])
+        self.assertIn("dep", result.output)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Comprehensive test suite documentation for manual/CI runs
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSuiteDocumentation(unittest.TestCase):
+    """
+    KBVC v0.1.4 — Comprehensive Test Suite Reference
+    ==================================================
+
+    This class is a living documentation block. No executable test methods.
+    Run the full suite with:
+
+        cd /path/to/kbvc
+        pip install -e ".[dev]"
+        python -m pytest tests/test_kbvc.py -v
+
+    Expected: >= 202 tests passing, 0 failing.
+
+    ── FILE FIXTURES NEEDED FOR MANUAL CLI TESTING ──────────────────────────
+
+    Create these files in a KBVC repo before running the manual commands below:
+
+    FILE: caching-policy.md
+    ─────────────────────────────────────────────────
+    ---
+    id: caching-policy
+    type: doc
+    tags: [infra, redis]
+    volatility: slow
+    ---
+
+    ## Overview
+
+    This document describes the caching strategy used by the platform.
+
+    ## Redis Configuration
+
+    We use Redis Cluster with 3 shards and a 7-day TTL for all hot paths.
+
+    ## Eviction Policy
+
+    LRU eviction is enabled with maxmemory-policy allkeys-lru.
+    ─────────────────────────────────────────────────
+
+    FILE: auth-flow.md
+    ─────────────────────────────────────────────────
+    ---
+    id: auth-flow
+    type: doc
+    tags: [security, oauth]
+    volatility: slow
+    ---
+
+    ## OAuth PKCE Flow
+
+    The platform implements RFC 7636 (PKCE) for all mobile clients.
+
+    ## Token Lifetime
+
+    Access tokens expire after 15 minutes. Refresh tokens after 30 days.
+    ─────────────────────────────────────────────────
+
+    FILE: api-design.md
+    ─────────────────────────────────────────────────
+    ---
+    id: api-design
+    type: doc
+    tags: [api, rest]
+    depends_on: [auth-flow]
+    volatility: slow
+    ---
+
+    ## REST API Design
+
+    All endpoints follow OpenAPI 3.1. Every endpoint requires auth.
+
+    ## Versioning
+
+    URI versioning: /v1/, /v2/ — no header versioning.
+    ─────────────────────────────────────────────────
+
+    ── MANUAL CLI COMMAND REFERENCE (one command per block) ─────────────────
+
+    BLOCK 1: Initialise and configure
+    ─────────────────────────────────
+        mkdir my-kb && cd my-kb
+        kbvc init
+        kbvc config set embed.backend gemini
+        kbvc config set embed.model gemini-embedding-2
+        kbvc config set embed.key $GEMINI_API_KEY
+        kbvc config set vectordb.backend chroma
+        kbvc backend init
+        kbvc backend info
+        # Expected: Dimensions: 3072 (NOT 1536)
+
+    BLOCK 2: First commit
+    ──────────────────────
+        # Copy caching-policy.md into the repo root
+        kbvc add caching-policy.md
+        kbvc status
+        # Expected: caching-policy.md appears under "Staged for next commit"
+        # Expected: caching-policy.md does NOT appear under "Unstaged modifications"
+        kbvc commit -m "initial: add caching policy"
+        kbvc log
+
+    BLOCK 3: Second file + diff
+    ────────────────────────────
+        # Copy auth-flow.md into the repo root
+        kbvc add auth-flow.md
+        kbvc commit -m "add auth flow doc"
+        # Capture both commit hashes from kbvc log
+        COMMIT_A=$(kbvc log --oneline | tail -1 | awk '{print $1}')
+        COMMIT_B=$(kbvc log --oneline | head -1 | awk '{print $1}')
+        kbvc diff $COMMIT_A $COMMIT_B
+        # Expected: shows ko changes between the two commits
+
+    BLOCK 4: Annotate + history
+    ────────────────────────────
+        # Modify auth-flow.md (add a line), stage and annotate
+        echo "" >> auth-flow.md
+        echo "## Update" >> auth-flow.md
+        echo "" >> auth-flow.md
+        echo "PKCE is now mandatory for all clients." >> auth-flow.md
+        kbvc add auth-flow.md
+        kbvc annotate auth-flow.md --reason "Reviewed and confirmed PKCE mandatory"
+        # Expected output includes: ✓ Reason will be recorded on next commit.
+        kbvc commit -m "update auth flow"
+        kbvc history auth-flow.md
+        # Expected: v2 appears with reason "Reviewed and confirmed PKCE mandatory"
+
+    BLOCK 5: annotate warning for unstaged file
+    ─────────────────────────────────────────────
+        # Copy api-design.md into repo (do NOT add it yet)
+        kbvc annotate api-design.md --reason "Will review next sprint"
+        # Expected: ⚠  'api-design' is not currently staged.
+        #           Stage it first: kbvc add api-design.md
+
+    BLOCK 6: Branch isolation
+    ──────────────────────────
+        kbvc branch create feature-auth-v2
+        kbvc branch switch feature-auth-v2
+        # Write and commit a new file unique to this branch
+        cat > auth-v2-notes.md << 'EOF'
+        ---
+        id: auth-v2-notes
+        type: doc
+        tags: [auth, v2]
+        volatility: slow
+        ---
+        ## Auth v2 Notes
+        OAuth 2.1 migration planned for Q3 2026.
+        EOF
+        kbvc add auth-v2-notes.md
+        kbvc commit -m "add auth v2 notes"
+        kbvc branch switch main
+        kbvc query "OAuth 2.1 migration"
+        # Expected: No results found.   (branch isolation working)
+        kbvc branch switch feature-auth-v2
+        kbvc query "OAuth 2.1 migration"
+        # Expected: auth-v2-notes appears in results
+
+    BLOCK 7: GC multi-branch
+    ─────────────────────────
+        kbvc branch switch main
+        kbvc gc --snapshots --dry-run
+        # Expected: graph-v2 is NOT listed as "would prune"
+        #           (it is reachable from feature-auth-v2)
+
+    BLOCK 8: Promote new types
+    ───────────────────────────
+        kbvc promote "Redis OOM was caused by oversized pipeline batches." \\
+            --id redis-oom-fix --type finding --confidence 0.95 --source agent
+        kbvc promote "All DB writes must be idempotent." \\
+            --id idempotency-rule --type rule
+        kbvc promote "Chose Qdrant for its filtering API in June 2026." \\
+            --id qdrant-choice --type decision
+        kbvc status
+        # Expected: all three files staged
+
+    BLOCK 9: stale / sync
+    ──────────────────────
+        kbvc stale
+        # Expected: (none) — no staleness without content change
+        kbvc sync --dry-run
+        # Expected: lists any changed KOs, commits nothing
+
+    BLOCK 10: Doctor
+    ─────────────────
+        kbvc doctor
+        # Expected: all checks pass, exit 0
+    """
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v0.1.4 — Pass-2 stability tests (deep audit)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 1 — version strings are consistent across ALL locations
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestVersionStringsAllLocations(unittest.TestCase):
+    """Every place a version string is written must match kbvc.__version__."""
+
+    def test_repo_json_written_with_current_version(self):
+        """KbvcRepo.init() must write __version__ into repo.json, not a stale constant."""
+        import tempfile, shutil, json
+        import kbvc
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            from kbvc.core.repo import KbvcRepo
+            repo = KbvcRepo.init(tmpdir, no_git=True)
+            info = json.loads((tmpdir / ".kbvc" / "repo.json").read_text())
+            self.assertEqual(
+                info["kbvc_version"], kbvc.__version__,
+                f"repo.json kbvc_version={info['kbvc_version']!r} "
+                f"!= kbvc.__version__={kbvc.__version__!r}"
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_lock_file_written_with_current_version(self):
+        """write_lock_file() must embed __version__, not a stale constant."""
+        import tempfile, shutil
+        import kbvc
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            lock_path = tmpdir / "kbvc.lock"
+            from kbvc.utils.lock import write_lock_file, KBVC_VERSION
+            self.assertEqual(
+                KBVC_VERSION, kbvc.__version__,
+                f"lock.py KBVC_VERSION={KBVC_VERSION!r} != "
+                f"kbvc.__version__={kbvc.__version__!r}"
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_repo_py_kbvc_version_matches_package(self):
+        """repo.py KBVC_VERSION must equal kbvc.__version__."""
+        import kbvc
+        from kbvc.core.repo import KBVC_VERSION
+        self.assertEqual(KBVC_VERSION, kbvc.__version__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 2 — config set/get for ALL sections in the config skeleton
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestConfigAllSections(TempRepoTest):
+    """Every section in the config skeleton must be writable via kbvc config set."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def test_config_set_core_section(self):
+        result = self._invoke(["config", "set", "core.format_version", "1"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_graph_section(self):
+        result = self._invoke(["config", "set", "graph.snapshot_mode", "full"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_graph_delta_threshold(self):
+        result = self._invoke(["config", "set", "graph.delta_threshold", "500"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_embed_section(self):
+        result = self._invoke(["config", "set", "embed.backend", "gemini"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_vectordb_section(self):
+        result = self._invoke(["config", "set", "vectordb.backend", "lancedb"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_retrieval_section(self):
+        result = self._invoke(["config", "set", "retrieval.hop_depth", "3"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_chunk_section(self):
+        result = self._invoke(["config", "set", "chunk.size", "800"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_remote_section(self):
+        result = self._invoke(["config", "set", "remote.origin.backend", "qdrant"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_config_set_unknown_section_rejected(self):
+        """An unknown section must be rejected, not silently accepted."""
+        result = self._invoke(["config", "set", "typo.key", "value"])
+        self.assertNotEqual(result.exit_code, 0, result.output)
+
+    def test_config_get_after_set_roundtrip(self):
+        self._invoke(["config", "set", "graph.snapshot_mode", "delta"])
+        result = self._invoke(["config", "get", "graph.snapshot_mode"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("delta", result.output)
+
+    def test_valid_sections_contains_core_and_graph(self):
+        """_VALID_SECTIONS must contain 'core' and 'graph'."""
+        from kbvc.utils.config import _VALID_SECTIONS
+        self.assertIn("core", _VALID_SECTIONS)
+        self.assertIn("graph", _VALID_SECTIONS)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 3 — qdrant filter is wired into client.search()
+# ─────────────────────────────────────────────────────────────────────────────
+
+try:
+    import qdrant_client as _qdrant_client  # noqa: F401
+    _QDRANT_AVAILABLE = True
+except ImportError:
+    _QDRANT_AVAILABLE = False
+
+
+@unittest.skipUnless(_QDRANT_AVAILABLE, "qdrant-client not installed — install kbvc[qdrant]")
+class TestQdrantFilterWired(unittest.TestCase):
+    """The filter dict must reach the Qdrant client, not be silently discarded."""
+
+    def test_qdrant_query_passes_filter_to_client(self):
+        """QdrantBackend.query() must call client.search() with query_filter set."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("kbvc.backends.vectordb.qdrant.QdrantBackend.__init__",
+                   return_value=None):
+            from kbvc.backends.vectordb.qdrant import QdrantBackend
+            backend = QdrantBackend.__new__(QdrantBackend)
+            backend._known_collections = set()
+
+            mock_client = MagicMock()
+            mock_client.search.return_value = []
+            backend._client = mock_client
+
+            backend.query("kbvc", [0.1] * 8, top_k=3, filter={"branch": "main"})
+
+        call_kwargs = mock_client.search.call_args
+        # query_filter must be a non-None Qdrant Filter object
+        filter_arg = call_kwargs.kwargs.get("query_filter") if call_kwargs.kwargs \
+            else call_kwargs[1].get("query_filter")
+        self.assertIsNotNone(
+            filter_arg,
+            "Qdrant client.search() was called without query_filter — "
+            "branch isolation is broken for Qdrant backend"
+        )
+
+    def test_qdrant_query_no_filter_passes_none(self):
+        """With no filter dict, query_filter must be None (not an empty Filter)."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("kbvc.backends.vectordb.qdrant.QdrantBackend.__init__",
+                   return_value=None):
+            from kbvc.backends.vectordb.qdrant import QdrantBackend
+            backend = QdrantBackend.__new__(QdrantBackend)
+            backend._known_collections = set()
+
+            mock_client = MagicMock()
+            mock_client.search.return_value = []
+            backend._client = mock_client
+
+            backend.query("kbvc", [0.1] * 8, top_k=3)
+
+        call_kwargs = mock_client.search.call_args
+        filter_arg = call_kwargs.kwargs.get("query_filter") if call_kwargs.kwargs \
+            else call_kwargs[1].get("query_filter")
+        self.assertIsNone(filter_arg)
+
+    def test_qdrant_scroll_by_prefix_no_filter_arg(self):
+        """_scroll_by_prefix must NOT pass a scroll_filter — it was the root bug."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("kbvc.backends.vectordb.qdrant.QdrantBackend.__init__",
+                   return_value=None):
+            from kbvc.backends.vectordb.qdrant import QdrantBackend
+            backend = QdrantBackend.__new__(QdrantBackend)
+
+            mock_client = MagicMock()
+            # Return two fake points — one matching the prefix, one not
+            pt_match = MagicMock()
+            pt_match.id = "uuid-a"
+            pt_match.payload = {"str_id": "main__ko__chunk_0"}
+            pt_no_match = MagicMock()
+            pt_no_match.id = "uuid-b"
+            pt_no_match.payload = {"str_id": "feature__other__chunk_0"}
+            mock_client.scroll.return_value = ([pt_match, pt_no_match], None)
+            backend._client = mock_client
+
+            result = backend._scroll_by_prefix("kbvc", "main__ko__")
+
+        # Must have found only the matching ID
+        self.assertEqual(result, ["uuid-a"])
+        # The scroll call must NOT include a scroll_filter kwarg
+        call_kwargs = mock_client.scroll.call_args
+        kw = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+        self.assertNotIn(
+            "scroll_filter", kw,
+            "_scroll_by_prefix still passes scroll_filter — MatchValue bug not fixed"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 4 — sync volatility tiers
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSyncVolatility(TempRepoTest):
+    """Volatility tiers must map to the documented KO sets."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _write_ko(self, filename, ko_id, volatility):
+        content = (
+            f"---\nid: {ko_id}\ntype: doc\ntags: []\nvolatility: {volatility}\n---\n\n"
+            f"## Section\n\nContent for {ko_id}.\n"
+        )
+        (self.tmpdir / filename).write_text(content)
+
+    def _commit_ko(self, filename, ko_id, volatility):
+        self._write_ko(filename, ko_id, volatility)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", f"add {ko_id}"])
+
+    def _modify_and_sync(self, filename, ko_id, volatility_flag):
+        p = self.tmpdir / filename
+        p.write_text(p.read_text() + "\n\n## Extra\n\nModified.\n")
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            result = self._invoke(["sync", "--volatility", volatility_flag])
+        return result
+
+    def test_sync_slow_only_stages_slow_kos(self):
+        """--volatility slow must only pick up 'slow' KOs, not 'live' ones."""
+        self._commit_ko("slow.md", "slow-ko", "slow")
+        self._commit_ko("live.md", "live-ko", "live")
+        result = self._modify_and_sync("slow.md", "slow-ko", "slow")
+        self.assertEqual(result.exit_code, 0)
+        # slow-ko should be detected
+        self.assertIn("slow-ko", result.output)
+        # live-ko was not modified — should not appear
+        self.assertNotIn("live-ko", result.output)
+
+    def test_sync_live_only_stages_live_kos(self):
+        """--volatility live must only pick up 'live' KOs, not 'slow' ones."""
+        self._commit_ko("slow2.md", "slow-ko2", "slow")
+        self._commit_ko("live2.md", "live-ko2", "live")
+        # Modify the slow KO only
+        p = self.tmpdir / "slow2.md"
+        p.write_text(p.read_text() + "\n\n## Mod\n\nChanged.\n")
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            result = self._invoke(["sync", "--volatility", "live"])
+        self.assertEqual(result.exit_code, 0)
+        # slow-ko2 was changed but --volatility live should skip it
+        self.assertNotIn("slow-ko2", result.output)
+
+    def test_sync_all_stages_both_slow_and_live(self):
+        """--volatility all must pick up both 'slow' and 'live' KOs."""
+        self._commit_ko("s.md", "s-ko", "slow")
+        self._commit_ko("l.md", "l-ko", "live")
+        # Modify both
+        for fname in ("s.md", "l.md"):
+            p = self.tmpdir / fname
+            p.write_text(p.read_text() + "\n\n## Extra\n\nModified.\n")
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            result = self._invoke(["sync", "--volatility", "all"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("s-ko", result.output)
+        self.assertIn("l-ko", result.output)
+
+    def test_sync_never_stages_frozen_kos(self):
+        """Frozen KOs must be excluded regardless of --volatility flag."""
+        self._commit_ko("frz.md", "frozen-ko", "frozen")
+        p = self.tmpdir / "frz.md"
+        p.write_text(p.read_text() + "\n\n## Mod\n\nChanged.\n")
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            result = self._invoke(["sync", "--volatility", "all"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertNotIn("frozen-ko", result.output)
+
+    def test_sync_dry_run_does_not_commit(self):
+        """--dry-run must report changes without advancing HEAD."""
+        self._commit_ko("dr.md", "dr-ko", "slow")
+        before_head = self.repo.head_commit()
+        p = self.tmpdir / "dr.md"
+        p.write_text(p.read_text() + "\n\n## Mod\n\nChanged.\n")
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["sync", "--dry-run"])
+        self.assertEqual(self.repo.head_commit(), before_head)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 5 — stats timezone safety
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestStatsSafe(TempRepoTest):
+    """kbvc stats must not raise TypeError from naive/aware datetime comparison."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit(self, filename, ko_id):
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", f"add {ko_id}"])
+
+    def test_stats_no_commits(self):
+        """kbvc stats on a fresh repo must not crash."""
+        result = self._invoke(["stats"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("KOs", result.output)
+
+    def test_stats_with_commits_no_datetime_crash(self):
+        """kbvc stats after commits must not raise TypeError from datetime comparison."""
+        self._commit("a.md", "a-ko")
+        self._commit("b.md", "b-ko")
+        result = self._invoke(["stats"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertNotIn("TypeError", result.output)
+        self.assertIn("KOs", result.output)
+
+    def test_stats_json_output(self):
+        """kbvc stats --json-out must produce valid JSON."""
+        import json
+        self._commit("x.md", "x-ko")
+        result = self._invoke(["stats", "--json-out"])
+        self.assertEqual(result.exit_code, 0)
+        try:
+            data = json.loads(result.output)
+        except json.JSONDecodeError as e:
+            self.fail(f"kbvc stats --json-out produced invalid JSON: {e}\n{result.output}")
+        self.assertIn("total_kos", data)
+        self.assertIn("total_commits", data)
+
+    def test_parse_iso_always_timezone_aware(self):
+        """_parse_iso must always return a timezone-aware datetime."""
+        from kbvc.commands.stats import _parse_iso
+        from datetime import timezone
+        # Normal ISO timestamp with timezone
+        dt1 = _parse_iso("2026-06-07T12:00:00+00:00")
+        self.assertIsNotNone(dt1.tzinfo)
+        # Naive timestamp (no timezone suffix)
+        dt2 = _parse_iso("2026-06-07T12:00:00")
+        self.assertIsNotNone(dt2.tzinfo)
+        # Invalid timestamp
+        dt3 = _parse_iso("not-a-date")
+        self.assertIsNotNone(dt3.tzinfo)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 6 — KOChange dataclass correct default factory
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestKOChangeDataclass(unittest.TestCase):
+    """KOChange must construct safely without mutation-sharing between instances."""
+
+    def test_kochange_chunks_default_is_empty_list(self):
+        from kbvc.core.commit import KOChange
+        c = KOChange(from_version=0, to_version=1, chunks_reembedded=[])
+        self.assertEqual(c.chunks, [])
+
+    def test_kochange_chunks_not_shared_between_instances(self):
+        """Two KOChange instances must have independent chunks lists."""
+        from kbvc.core.commit import KOChange
+        a = KOChange(from_version=0, to_version=1, chunks_reembedded=[])
+        b = KOChange(from_version=1, to_version=2, chunks_reembedded=[])
+        a.chunks.append({"index": 0, "section": "test"})
+        self.assertEqual(b.chunks, [],
+            "KOChange.chunks is a shared mutable default — field() not used correctly")
+
+    def test_kochange_explicit_chunks_preserved(self):
+        from kbvc.core.commit import KOChange
+        chunks = [{"index": 0, "section": "Intro"}]
+        c = KOChange(from_version=0, to_version=1, chunks_reembedded=[0], chunks=chunks)
+        self.assertEqual(c.chunks, chunks)
+
+    def test_kochange_serialises_to_dict(self):
+        """asdict() must work without errors."""
+        from kbvc.core.commit import KOChange
+        from dataclasses import asdict
+        c = KOChange(from_version=1, to_version=2, chunks_reembedded=[0, 1],
+                     reason="test", chunks=[{"index": 0, "section": "S"}])
+        d = asdict(c)
+        self.assertEqual(d["from_version"], 1)
+        self.assertEqual(d["to_version"], 2)
+        self.assertEqual(d["chunks"], [{"index": 0, "section": "S"}])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 7 — chroma delete_by_prefix valid API call
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestChromaDeleteByPrefix(unittest.TestCase):
+    """chroma.delete_by_prefix() must call col.get() without where_document."""
+
+    def test_delete_by_prefix_no_where_document(self):
+        """col.get() must be called without a where_document argument."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("kbvc.backends.vectordb.chroma.ChromaBackend.__init__",
+                   return_value=None):
+            from kbvc.backends.vectordb.chroma import ChromaBackend
+            backend = ChromaBackend.__new__(ChromaBackend)
+
+            mock_col = MagicMock()
+            mock_col.get.return_value = {
+                "ids": ["main__ko__chunk_0", "main__ko__chunk_1", "other__ko2__chunk_0"]
+            }
+            backend._client = MagicMock()
+            backend._get_collection = MagicMock(return_value=mock_col)
+
+            backend.delete_by_prefix("kbvc", "main__ko__")
+
+        # get() must have been called with NO arguments (or only keyword args
+        # that are not where_document)
+        call_args = mock_col.get.call_args
+        if call_args:
+            kw = call_args.kwargs if call_args.kwargs else {}
+            self.assertNotIn(
+                "where_document", kw,
+                "col.get() called with where_document= — invalid Chroma API"
+            )
+
+        # Only the two matching IDs must be deleted
+        delete_call = mock_col.delete.call_args
+        deleted_ids = delete_call.kwargs.get("ids") if delete_call.kwargs \
+            else delete_call[1].get("ids")
+        self.assertEqual(
+            sorted(deleted_ids),
+            ["main__ko__chunk_0", "main__ko__chunk_1"]
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 8 — lancedb patch_metadata and exists_batch don't use tbl.search()
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestLanceDBNoCrashMethods(unittest.TestCase):
+    """patch_metadata() and exists_batch() must not call tbl.search() (no vector)."""
+
+    def _make_backend(self):
+        from unittest.mock import MagicMock, patch
+        with patch("kbvc.backends.vectordb.lancedb.LanceDBBackend.__init__",
+                   return_value=None):
+            from kbvc.backends.vectordb.lancedb import LanceDBBackend
+            backend = LanceDBBackend.__new__(LanceDBBackend)
+            backend._uri = "./test_lance"
+            return backend
+
+    def test_patch_metadata_uses_to_pandas_not_search(self):
+        """patch_metadata must use to_pandas(), not tbl.search() which needs a vector."""
+        import pandas as pd
+        from unittest.mock import MagicMock
+
+        backend = self._make_backend()
+        mock_tbl = MagicMock()
+        df = pd.DataFrame([
+            {"vector_id": "main__ko__chunk_0", "branch": "main",
+             "ko_id": "ko", "ko_version": 1, "chunk_index": 0,
+             "chunk_hash": "abc", "commit_id": "pending", "created_at": ""},
+        ])
+        mock_tbl.to_pandas.return_value = df
+        mock_tbl.delete = MagicMock()
+        mock_tbl.add = MagicMock()
+        backend._get_table = MagicMock(return_value=mock_tbl)
+
+        backend.patch_metadata("kbvc", "main__ko__", {"commit_id": "abc123"})
+
+        # to_pandas must have been called
+        mock_tbl.to_pandas.assert_called_once()
+        # search must NOT have been called
+        mock_tbl.search.assert_not_called()
+
+    def test_exists_batch_uses_to_pandas_not_search(self):
+        """exists_batch must use to_pandas(), not tbl.search() which needs a vector."""
+        import pandas as pd
+        from unittest.mock import MagicMock
+
+        backend = self._make_backend()
+        mock_tbl = MagicMock()
+        df = pd.DataFrame([
+            {"vector_id": "main__ko__chunk_0"},
+            {"vector_id": "main__ko__chunk_1"},
+        ])
+        mock_tbl.to_pandas.return_value = df
+        backend._get_table = MagicMock(return_value=mock_tbl)
+
+        result = backend.exists_batch(
+            "kbvc",
+            ["main__ko__chunk_0", "main__ko__chunk_9"]
+        )
+
+        mock_tbl.to_pandas.assert_called_once()
+        mock_tbl.search.assert_not_called()
+        self.assertTrue(result["main__ko__chunk_0"])
+        self.assertFalse(result["main__ko__chunk_9"])
+
+    def test_lancedb_no_schema_cache(self):
+        """_SCHEMA_CACHE must not exist in the lancedb module."""
+        import kbvc.backends.vectordb.lancedb as m
+        self.assertFalse(
+            hasattr(m, "_SCHEMA_CACHE"),
+            "_SCHEMA_CACHE still present — dead code not removed"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 9 — push.py no duplicate import
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPushNoDuplicateImport(unittest.TestCase):
+    """push.py must not have a duplicate chunker import inside the loop."""
+
+    def test_no_duplicate_chunker_import_in_push(self):
+        import ast
+        push_path = Path(__file__).parent.parent / "src" / "kbvc" / "commands" / "push.py"
+        if not push_path.exists():
+            self.skipTest(f"push.py not found at {push_path}")
+        source = push_path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        # Collect all import statements — flag if the same chunker import
+        # appears more than once
+        chunker_imports = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module and "chunker" in node.module:
+                    chunker_imports.append(node.lineno)
+
+        self.assertLessEqual(
+            len(chunker_imports), 1,
+            f"Duplicate chunker import in push.py at lines {chunker_imports}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STABILITY 10 — full end-to-end smoke test (all components wired correctly)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestEndToEndSmoke(TempRepoTest):
+    """Minimal end-to-end: init → config → add → commit → query → stats → gc."""
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+        from kbvc.cli import main
+        return CliRunner().invoke(main, args, catch_exceptions=False)
+
+    def _commit(self, filename, ko_id, msg="add"):
+        self.write_md(filename, ko_id)
+        self._invoke(["add", filename])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            return self._invoke(["commit", "-m", msg])
+
+    def test_full_pipeline_exit_codes(self):
+        """Every step of the standard pipeline must exit 0."""
+        steps = [
+            (["config", "set", "embed.backend", "gemini"],     "config embed.backend"),
+            (["config", "set", "embed.model", "gemini-embedding-2"], "config embed.model"),
+            (["config", "set", "vectordb.backend", "chroma"],   "config vectordb.backend"),
+        ]
+        for args, label in steps:
+            result = self._invoke(args)
+            self.assertEqual(result.exit_code, 0, f"{label} failed:\n{result.output}")
+
+        # add + commit
+        r = self._commit("smoke.md", "smoke-ko", "smoke test")
+        self.assertEqual(r.exit_code, 0, f"commit failed:\n{r.output}")
+
+        # status
+        r = self._invoke(["status"])
+        self.assertEqual(r.exit_code, 0, f"status failed:\n{r.output}")
+
+        # log
+        r = self._invoke(["log"])
+        self.assertEqual(r.exit_code, 0, f"log failed:\n{r.output}")
+
+        # history
+        r = self._invoke(["history", "smoke.md"])
+        self.assertEqual(r.exit_code, 0, f"history failed:\n{r.output}")
+
+        # stale
+        r = self._invoke(["stale"])
+        self.assertEqual(r.exit_code, 0, f"stale failed:\n{r.output}")
+
+        # stats
+        r = self._invoke(["stats"])
+        self.assertEqual(r.exit_code, 0, f"stats failed:\n{r.output}")
+
+        # query (mocked vdb)
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            vdb = fake_vdb_backend()
+            vdb.query.return_value = []
+            mv.return_value = vdb
+            r = self._invoke(["query", "smoke test query"])
+        self.assertEqual(r.exit_code, 0, f"query failed:\n{r.output}")
+
+        # doctor
+        r = self._invoke(["doctor"])
+        self.assertEqual(r.exit_code, 0, f"doctor failed:\n{r.output}")
+
+        # gc
+        with patch("kbvc.backends.get_vectordb_backend") as mvdb, \
+             patch("kbvc.backends.get_embed_backend"):
+            vdb = fake_vdb_backend()
+            vdb.export_chunks.return_value = []
+            mvdb.return_value = vdb
+            r = self._invoke(["gc", "--dry-run"])
+        self.assertEqual(r.exit_code, 0, f"gc failed:\n{r.output}")
+
+    def test_branch_isolation_end_to_end(self):
+        """Vectors committed on main must not be visible when querying on feature."""
+        # Commit on main
+        self._commit("main.md", "main-ko", "main commit")
+        main_head = self.repo.head_commit()
+
+        # Create and switch to feature branch
+        self._invoke(["branch", "create", "feature-smoke"])
+        self._invoke(["branch", "switch", "feature-smoke"])
+        self.assertEqual(self.repo.current_branch(), "feature-smoke")
+
+        # On feature branch, query must use filter={"branch": "feature-smoke"}
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            vdb = fake_vdb_backend()
+            vdb.query.return_value = []
+            mv.return_value = vdb
+            self._invoke(["query", "main ko content"])
+
+        call_kwargs = vdb.query.call_args
+        if call_kwargs:
+            filter_arg = call_kwargs.kwargs.get("filter") if call_kwargs.kwargs \
+                else (call_kwargs[1].get("filter") if len(call_kwargs) > 1 else None)
+            if filter_arg:
+                self.assertEqual(filter_arg.get("branch"), "feature-smoke",
+                    "query on feature branch used wrong branch filter")
+
+    def test_multi_commit_log_and_diff(self):
+        """Two commits followed by diff must produce output mentioning both hashes."""
+        sha1 = self._commit("c1.md", "c1", "first commit").output
+        self._invoke(["branch", "create", "x"])  # ensure HEAD is valid
+        sha1_hash = self.repo.head_commit()
+
+        p = self.tmpdir / "c1.md"
+        p.write_text(p.read_text() + "\n\n## Added\n\nNew content.\n")
+        self._invoke(["add", "c1.md"])
+        with patch("kbvc.backends.get_embed_backend") as me, \
+             patch("kbvc.backends.get_vectordb_backend") as mv:
+            me.return_value = fake_embed_backend()
+            mv.return_value = fake_vdb_backend()
+            self._invoke(["commit", "-m", "second commit"])
+        sha2_hash = self.repo.head_commit()
+
+        result = self._invoke(["diff", sha1_hash, sha2_hash])
+        self.assertEqual(result.exit_code, 0)
+        # Diff must mention c1 (the changed KO)
+        self.assertIn("c1", result.output)

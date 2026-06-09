@@ -40,13 +40,19 @@ def run_sync(
     store = KOStore(repo.ko_store_path)
     index = StagingIndex.load(repo.index_path)
 
-    # Determine which volatility levels to include
+    # BUG FIX (v0.1.4): volatility tiers were mis-mapped.
+    # "slow" was incorrectly including "live" KOs (same set as "all").
+    # Correct mapping:
+    #   live  → only live KOs  (fast-changing; e.g. daily cron)
+    #   slow  → only slow KOs  (stable; default for manual sync)
+    #   all   → slow + live    (all non-frozen; e.g. nightly cron)
+    # "frozen" KOs are always excluded regardless of tier.
     if volatility == "live":
         include = {"live"}
     elif volatility == "slow":
-        include = {"slow", "live"}
+        include = {"slow"}
     else:  # "all"
-        include = {"slow", "live"}  # never include frozen
+        include = {"slow", "live"}  # all non-frozen
 
     candidates = []
     for ko in store.all():

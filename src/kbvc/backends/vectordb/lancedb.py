@@ -21,8 +21,6 @@ from typing import Any, Dict, List, Optional
 
 from kbvc.backends.vectordb import VectorDBBackend, ChunkRecord
 
-_SCHEMA_CACHE: Dict[str, Any] = {}
-
 
 class LanceDBBackend(VectorDBBackend):
     """LanceDB-backed VSAL adapter.
@@ -180,39 +178,42 @@ class LanceDBBackend(VectorDBBackend):
         tbl = self._get_table(collection)
         if tbl is None:
             return
-        safe_prefix = id_prefix.replace("'", "''")
-        existing = (
-            tbl.search()
-               .where(f"vector_id LIKE '{safe_prefix}%'")
-               .to_list()
-        )
-        if not existing:
+        # BUG FIX (v0.1.4): tbl.search() requires a query vector for ANN
+        # search. Using it without a vector crashes. Use to_pandas() for a
+        # full-table scan then filter by prefix client-side.
+        try:
+            import pandas as pd
+            df = tbl.to_pandas()
+        except Exception:
             return
-        # Re-upsert with patched metadata
-        updated = []
-        for row in existing:
-            updated_row = dict(row)
-            for k, v in patch.items():
-                if k in updated_row:
-                    updated_row[k] = v
-            updated.append(updated_row)
-        ids = [r["vector_id"] for r in updated]
-        id_list = ", ".join(f"'{i}'" for i in ids)
-        tbl.delete(f"vector_id IN ({id_list})")
-        tbl.add(updated)
+        mask = df["vector_id"].str.startswith(id_prefix)
+        if not mask.any():
+            return
+        # Apply patch to the matched rows
+        for col_name, val in patch.items():
+            if col_name in df.columns:
+                df.loc[mask, col_name] = val
+        # Delete old rows and re-insert updated ones
+        safe_prefix = id_prefix.replace("'", "''")
+        try:
+            tbl.delete(f"vector_id LIKE '{safe_prefix}%'")
+        except Exception:
+            pass
+        updated_rows = df[mask].to_dict(orient="records")
+        if updated_rows:
+            tbl.add(updated_rows)
 
     def exists_batch(self, collection: str, ids: List[str]) -> Dict[str, bool]:
         tbl = self._get_table(collection)
         if tbl is None:
             return {id_: False for id_ in ids}
-        id_list = ", ".join(f"'{i}'" for i in ids)
-        results = (
-            tbl.search()
-               .where(f"vector_id IN ({id_list})")
-               .select(["vector_id"])
-               .to_list()
-        )
-        found = {row["vector_id"] for row in results}
+        # BUG FIX (v0.1.4): tbl.search() requires a query vector for ANN
+        # search. Use to_pandas() for a full-table scan then check membership.
+        try:
+            df = tbl.to_pandas()
+            found = set(df["vector_id"].tolist())
+        except Exception:
+            found = set()
         return {id_: (id_ in found) for id_ in ids}
 
     def initialize_schema(self, collection: str, dimensions: int) -> None:

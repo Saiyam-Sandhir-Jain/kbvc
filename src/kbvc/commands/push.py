@@ -174,7 +174,6 @@ def run_push(
                 continue
 
             content = src.read_text(encoding="utf-8")
-            from kbvc.core.chunker import parse_frontmatter, split_into_chunks
             fm, body = parse_frontmatter(content)
             chunks = split_into_chunks(body, fm)
 

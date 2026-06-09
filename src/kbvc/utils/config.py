@@ -12,10 +12,12 @@ from pathlib import Path
 # Validated on write so typos (e.g. "vectordb.urlhttp") fail loudly
 # instead of silently creating a garbage config key or a directory on disk.
 _VALID_SECTIONS = {
+    "core",       # format_version etc — written by kbvc init
     "embed",
     "vectordb",
     "chunk",
     "retrieval",
+    "graph",      # snapshot_mode, delta_threshold
     "remote",
     "repo",
 }

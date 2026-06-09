@@ -85,9 +85,11 @@ promoted_by: {source}
     out_path.write_text(content, encoding="utf-8")
 
     # Stage it
-    idx = StagingIndex(repo.kbvc_dir / "index")
+    index_path = repo.kbvc_dir / "index"
+    idx = StagingIndex.load(index_path)
     rel_path = str(out_path.relative_to(repo.root))
     idx.stage(rel_path)
+    idx.save(index_path)
 
     click.echo(f"✓ Created: {out_path.relative_to(repo.root)}")
     click.echo(f"  id:         {ko_id}")

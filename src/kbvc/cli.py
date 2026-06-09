@@ -46,7 +46,7 @@ import click
 # ── Main group ────────────────────────────────────────────────────────────────
 
 @click.group()
-@click.version_option(version="0.1.3", prog_name="kbvc")
+@click.version_option(version="0.1.4", prog_name="kbvc")
 def main():
     """KBVC — Git-native Knowledge Infrastructure Layer for AI systems."""
     pass
@@ -93,11 +93,52 @@ def config():
 
 @config.command(name="set")
 @click.argument("key")
-@click.argument("value")
+@click.argument("value", required=False, default=None)
 def config_set(key, value):
-    """Set a config value. Key: section.name (e.g. embed.backend)."""
+    """Set a config value. Key: section.name (e.g. embed.backend).
+
+    VALUE may be omitted when a corresponding environment variable is set.
+    The env var name is derived by uppercasing the key and replacing dots
+    with underscores, prefixed with KBVC_:
+
+    \b
+        embed.backend   → KBVC_EMBED_BACKEND
+        embed.key       → KBVC_EMBED_KEY
+        vectordb.url    → KBVC_VECTORDB_URL
+
+    Common pass-through variables are also checked automatically:
+        embed.key with backend=gemini  → GEMINI_API_KEY
+        embed.key with backend=openai  → OPENAI_API_KEY
+    """
+    import os
     from kbvc.core.repo import KbvcRepo, NotKBVCRepositoryError
     from kbvc.utils.config import write_config_key
+
+    # If VALUE was not provided on the command line, try environment variables.
+    if value is None or value == "":
+        # Primary: KBVC_<SECTION>_<KEY>  e.g. KBVC_EMBED_BACKEND
+        env_var = "KBVC_" + key.upper().replace(".", "_")
+        value = os.environ.get(env_var)
+
+        # Secondary: well-known provider key pass-throughs
+        if value is None and key == "embed.key":
+            for provider_var in ("GEMINI_API_KEY", "OPENAI_API_KEY",
+                                 "ANTHROPIC_API_KEY", "COHERE_API_KEY"):
+                v = os.environ.get(provider_var)
+                if v:
+                    value = v
+                    env_var = provider_var
+                    break
+
+        if value is None:
+            primary = "KBVC_" + key.upper().replace(".", "_")
+            raise click.UsageError(
+                f"Missing argument 'VALUE'.\n\n"
+                f"Pass it directly:  kbvc config set {key} <value>\n"
+                f"Or set env var:    export {primary}=<value>"
+            )
+        click.echo(f"  (read from ${env_var})")
+
     try:
         repo = KbvcRepo.require()
     except NotKBVCRepositoryError as exc:
@@ -166,8 +207,13 @@ def add(paths):
     ko_store = KOStore(repo.ko_store_path)
     config = repo.config()
 
+    # Load .kbvcignore patterns once (built-ins + .kbvcignore + .kbvc/ignore)
+    from kbvc.utils.ignore import load_ignore_patterns, is_ignored
+    ignore_patterns = load_ignore_patterns(repo.root)
+
     staged_count = 0
     skipped_count = 0
+    missing_count = 0
 
     # Expand paths: resolve globs and directories
     all_files: list[Path] = []
@@ -187,6 +233,7 @@ def add(paths):
                 all_files.extend(matches)
             else:
                 click.echo(f"  ✗ Not found: {path_str}", err=True)
+                missing_count += 1
 
     for src in all_files:
         # Skip hidden files and .kbvc directory
@@ -200,7 +247,10 @@ def add(paths):
         if not src.is_file():
             continue
 
-        rel_str = str(rel)
+        # Apply .kbvcignore patterns (built-ins cover .venv, node_modules, etc.)
+        rel_str = str(rel).replace("\\", "/")
+        if is_ignored(rel_str, ignore_patterns):
+            continue
 
         # Compute whether this file has changed vs stored KO
         try:
@@ -242,6 +292,10 @@ def add(paths):
     click.echo(f"Staged {staged_count} file(s). {skipped_count} unchanged.")
     if staged_count:
         click.echo("Run: kbvc commit -m \"<message>\" to embed and commit.")
+    if missing_count:
+        raise click.ClickException(
+            f"{missing_count} path(s) not found — nothing to stage."
+        )
 
 
 # ── commit ────────────────────────────────────────────────────────────────────
@@ -358,10 +412,13 @@ def status():
     # Check for unstaged modifications
     click.echo("\nUnstaged modifications (tracked KOs):")
     found_unstaged = False
+    staged_ko_paths = {Path(p) for p in index.staged_files}
     for ko in ko_store.all():
         if ko.source_type != "file":
             continue
         src = repo.root / ko.path
+        if Path(ko.path) in staged_ko_paths:
+            continue  # already staged — do not double-list
         if not src.exists():
             click.echo(f"  ! deleted (on disk): {ko.path}")
             found_unstaged = True
@@ -392,13 +449,18 @@ def status():
 
     # Untracked — Markdown files on disk not yet staged or committed
     click.echo("\nUntracked files (not yet added to KBVC):")
+    from kbvc.utils.ignore import load_ignore_patterns, is_ignored
+    ignore_patterns = load_ignore_patterns(repo.root)
     tracked_paths = {Path(ko.path) for ko in ko_store.all()}
     staged_paths  = {Path(p) for p in index.staged_files}
     found_untracked = False
     for md_file in sorted(repo.root.rglob("*.md")):
         rel = md_file.relative_to(repo.root)
-        # Skip .kbvc internals
+        # Skip .kbvc internals and ignored paths
         if rel.parts[0] == ".kbvc":
+            continue
+        rel_str = str(rel).replace("\\", "/")
+        if is_ignored(rel_str, ignore_patterns):
             continue
         if rel not in tracked_paths and rel not in staged_paths:
             click.echo(f"  ? {rel}  (use: kbvc add {rel})")
@@ -541,6 +603,82 @@ def diff_cmd(path_or_commit_a, commit_b, file):
                     click.echo(f"  - chunk[{idx}] (deleted)")
         else:
             click.echo(f"File not found: {path_or_commit_a}")
+    elif path_or_commit_a and commit_b:
+        # kbvc diff <commit_a> <commit_b> [file] — compare two commits
+        from kbvc.core.commit import CommitObject
+        from kbvc.core.versioner import KOVersioner
+
+        def _find_version_at_commit(versioner: KOVersioner, ko_id: str,
+                                    commit_id: str):
+            """Return the version number whose commit_id matches, or None."""
+            for snap in versioner.all_versions(ko_id):
+                if snap.commit_id == commit_id or snap.commit_id.startswith(commit_id):
+                    return snap.version
+            return None
+
+        try:
+            commit_a_obj = CommitObject.load(repo.commits_dir, path_or_commit_a)
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(f"Cannot resolve commit '{path_or_commit_a}': {exc}")
+
+        try:
+            commit_b_obj = CommitObject.load(repo.commits_dir, commit_b)
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(f"Cannot resolve commit '{commit_b}': {exc}")
+
+        versioner = KOVersioner(repo.ko_versions_dir)
+
+        # Union of KOs changed by either commit
+        changed_kos: set = (
+            set(commit_a_obj.changed_kos.keys())
+            | set(commit_b_obj.changed_kos.keys())
+        )
+
+        # If a specific file was given, restrict to that KO
+        if file:
+            from kbvc.commands.commit import _path_to_ko_id
+            fp = Path(file)
+            if fp.exists():
+                fm, _ = parse_frontmatter(fp.read_text(encoding="utf-8"))
+                filter_ko_id = _path_to_ko_id(fp, fm)
+            else:
+                filter_ko_id = fp.stem
+            changed_kos = {filter_ko_id} & changed_kos
+
+        if not changed_kos:
+            click.echo(
+                f"No shared KO changes between "
+                f"{commit_a_obj.display_id} and {commit_b_obj.display_id}."
+            )
+            return
+
+        click.echo(
+            f"Diff  {commit_a_obj.display_id}..{commit_b_obj.display_id}"
+        )
+        for ko_id in sorted(changed_kos):
+            ver_a = _find_version_at_commit(
+                versioner, ko_id, commit_a_obj.commit_id
+            )
+            ver_b = _find_version_at_commit(
+                versioner, ko_id, commit_b_obj.commit_id
+            )
+            if ver_a == ver_b:
+                continue
+            ver_a_str = str(ver_a) if ver_a is not None else "∅"
+            ver_b_str = str(ver_b) if ver_b is not None else "∅"
+            click.echo(f"\n  {ko_id}  v{ver_a_str} → v{ver_b_str}")
+            snap_b = versioner.load_version(ko_id, ver_b) if ver_b else None
+            if snap_b and snap_b.changed_chunks:
+                for idx in sorted(snap_b.changed_chunks):
+                    section = next(
+                        (c["section"] for c in (snap_b.chunks or [])
+                         if c["index"] == idx),
+                        "unknown",
+                    )
+                    click.echo(f"    ~ chunk[{idx}]  section='{section}'")
+            if snap_b and snap_b.deleted_chunks:
+                for idx in sorted(snap_b.deleted_chunks):
+                    click.echo(f"    - chunk[{idx}]  (deleted)")
     else:
         click.echo("Use: kbvc diff <file>  to see changes vs last commit")
 
@@ -794,8 +932,10 @@ def query(query_text, top_k, profile):
     except Exception as exc:
         raise click.ClickException(f"Embedding failed: {exc}")
 
+    branch = repo.current_branch()
     try:
-        results = vdb.query(collection, query_vec, top_k=top_k)
+        results = vdb.query(collection, query_vec, top_k=top_k,
+                            filter={"branch": branch})
     except Exception as exc:
         raise click.ClickException(f"Query failed: {exc}")
 
@@ -1122,7 +1262,23 @@ def annotate(file, reason):
     index = StagingIndex.load(repo.index_path)
     index.set_reason(ko_id, reason)
     index.save(repo.index_path)
+
+    # Check whether the KO is actually staged
+    staged_paths = {Path(f) for f in index.staged_files}
+    ko_path = Path(file) if Path(file).exists() else None
+    is_staged = (
+        ko_path in staged_paths
+        if ko_path
+        else any(Path(f).stem == ko_id for f in index.staged_files)
+    )
+
     click.echo(f"Annotated {ko_id}: {reason!r}")
+    if not is_staged:
+        click.echo(f"  ⚠  '{ko_id}' is not currently staged.")
+        click.echo(f"     Stage it first:  kbvc add {file}")
+        click.echo(f"     The reason will be recorded on the next commit.")
+    else:
+        click.echo(f"  ✓ Reason will be recorded on next commit.")
 
 
 @main.command()
@@ -2388,7 +2544,10 @@ def explain(vector_id):
 @click.option("--id", "ko_id", default=None,
               help="KO id (default: slugified from memory text)")
 @click.option("--type", "ko_type", default="lesson",
-              type=click.Choice(["lesson", "observation", "concept", "doc", "project"]),
+              type=click.Choice([
+                  "lesson", "observation", "concept", "doc", "project",
+                  "finding", "fact", "rule", "decision", "note",
+              ]),
               help="KO type (default: lesson)")
 @click.option("--confidence", default=0.8, type=float,
               help="Confidence score 0.0–1.0 (default: 0.8 for promoted memories)")
@@ -2443,12 +2602,12 @@ def sync(volatility, dry_run, message):
     \b
     Volatility filter:
         live   — only `live` KOs
-        slow   — `slow` and `live` KOs (default)
-        all    — all non-frozen KOs
+        slow   — only `slow` KOs (default)
+        all    — all non-frozen KOs (`slow` + `live`)
 
     \b
     Example:
-        kbvc sync                        # commit changed slow + live KOs
+        kbvc sync                        # commit changed slow KOs
         kbvc sync --volatility live      # only live KOs
         kbvc sync --dry-run              # preview without committing
         kbvc sync -m "nightly refresh"   # custom commit message

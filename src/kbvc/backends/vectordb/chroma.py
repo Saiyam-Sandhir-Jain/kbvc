@@ -92,7 +92,9 @@ class ChromaBackend(VectorDBBackend):
 
     def delete_by_prefix(self, collection: str, id_prefix: str) -> None:
         col = self._get_collection(collection)
-        result = col.get(where_document=None)
+        # col.get() with no arguments returns all documents (ids + metadata).
+        # Passing where_document=None is invalid Chroma API usage.
+        result = col.get()
         ids_to_delete = [i for i in result["ids"] if i.startswith(id_prefix)]
         if ids_to_delete:
             col.delete(ids=ids_to_delete)

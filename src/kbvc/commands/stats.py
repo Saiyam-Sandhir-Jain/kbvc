@@ -140,7 +140,13 @@ def compute_stats(
 
 
 def _parse_iso(ts: str) -> datetime:
+    """Parse an ISO-8601 timestamp. Always returns a timezone-aware datetime."""
     try:
-        return datetime.fromisoformat(ts)
+        dt = datetime.fromisoformat(ts)
+        # Ensure timezone-aware so comparisons with timezone-aware month_start
+        # don't raise TypeError on Python 3.9/3.10.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return datetime.min.replace(tzinfo=timezone.utc)

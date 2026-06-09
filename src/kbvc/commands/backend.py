@@ -98,6 +98,7 @@ _MODEL_DIMS = {
     "text-embedding-ada-002": 1536,
     # Gemini
     "gemini-embedding-001": 3072,
+    "gemini-embedding-2": 3072,   # alias used in config; same dims as gemini-embedding-001
     "text-embedding-004": 768,
     # common HF / Ollama
     "nomic-embed-text": 768,

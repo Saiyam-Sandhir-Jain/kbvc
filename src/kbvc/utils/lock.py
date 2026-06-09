@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-KBVC_VERSION = "0.1.0"
+from kbvc import __version__ as _KBVC_VERSION
+
+KBVC_VERSION = _KBVC_VERSION  # kept as a module-level name for compatibility
 
 
 def write_lock_file(

@@ -100,10 +100,20 @@ class QdrantBackend(VectorDBBackend):
         top_k: int,
         filter: Optional[Dict] = None,
     ) -> List[Dict]:
+        qdrant_filter = None
+        if filter:
+            from qdrant_client.models import FieldCondition, Filter, MatchValue as QMatchValue
+            must_clauses = [
+                FieldCondition(key=k, match=QMatchValue(value=v))
+                for k, v in filter.items()
+            ]
+            qdrant_filter = Filter(must=must_clauses)
+
         results = self._client.search(
             collection_name=collection,
             query_vector=vector,
             limit=top_k,
+            query_filter=qdrant_filter,
         )
         return [
             {
@@ -184,27 +194,25 @@ class QdrantBackend(VectorDBBackend):
         """
         Scroll all points whose str_id starts with id_prefix.
         Returns a list of UUID point IDs (for use with delete / set_payload).
+
+        BUG FIX (v0.1.4): The previous implementation passed
+        MatchValue(value=id_prefix) as the scroll filter.  MatchValue is an
+        EXACT match — no record ever has str_id == the bare prefix (e.g.
+        "main__caching__"), so the scroll always returned 0 results.
+        The correct approach is to scroll the entire collection and apply
+        the startswith test client-side.  This is safe because collections
+        are per-kbvc-repo and typically small.
         """
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
         offset = None
         collected_ids: List[str] = []
         while True:
             results, offset = self._client.scroll(
                 collection_name=collection,
-                scroll_filter=Filter(
-                    must=[
-                        FieldCondition(
-                            key="str_id",
-                            match=MatchValue(value=id_prefix),
-                        )
-                    ]
-                ),
                 limit=256,
                 offset=offset,
                 with_payload=["str_id"],
                 with_vectors=False,
             )
-            # MatchValue is exact — filter client-side for prefix semantics
             for pt in results:
                 str_id = pt.payload.get("str_id", "")
                 if str_id.startswith(id_prefix):

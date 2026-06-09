@@ -20,7 +20,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-KBVC_VERSION = "0.1.2"
+from kbvc import __version__ as _KBVC_VERSION
+
+KBVC_VERSION = _KBVC_VERSION  # kept as a module-level name for compatibility
 FORMAT_VERSION = "1"
 
 
@@ -233,6 +235,27 @@ class KbvcRepo:
         (path / "kbvc.lock").write_text(lock_content, encoding="utf-8")
 
         # ── Step 5: .gitignore — keep secrets out of git ───────────────────────
+        # ── Write .kbvcignore ──────────────────────────────────────────────────
+        kbvcignore = path / ".kbvcignore"
+        if not kbvcignore.exists():
+            kbvcignore.write_text(
+                "# .kbvcignore — patterns to exclude from kbvc add / kbvc status\n"
+                "# Syntax: gitignore-style (fnmatch globs, # = comment)\n"
+                "#\n"
+                "# Built-in defaults (always active):\n"
+                "#   .venv/  venv/  .env/  node_modules/  __pycache__/  .git/  .kbvc/\n"
+                "#\n"
+                "# Add your own patterns below:\n"
+                "dist/\n"
+                "build/\n"
+                "*.egg-info/\n"
+                ".tox/\n"
+                ".mypy_cache/\n"
+                ".pytest_cache/\n"
+                "htmlcov/\n",
+                encoding="utf-8",
+            )
+
         block = (
             "\n# KBVC — never commit API keys or local config\n"
             ".kbvc/config\n"

@@ -13,6 +13,85 @@ _Changes merged to `main` but not yet released._
 
 ---
 
+## [0.1.4] — 2026-06-07
+
+### Fixed (pass 1 — instruction bugs)
+
+- **CRITICAL** `kbvc query` now passes `filter={"branch": current_branch}` to
+  the vector DB. Previously switching branches still returned vectors committed
+  on other branches. Branch isolation is now enforced at query time.
+- `kbvc diff <commit_a> <commit_b> [file]` now implements a real chunk-level
+  diff between two commits. Previously it always printed the help message
+  regardless of arguments.
+- `kbvc status` no longer lists already-staged files under "Unstaged
+  modifications". Files in the staging index are now skipped in that section.
+- `kbvc gc --snapshots` now walks **all** branch HEADs (not just the current
+  branch) before pruning. Feature-branch snapshots are no longer incorrectly
+  marked as unreachable from master/main.
+- `kbvc backend info` now shows correct dimensions for `gemini-embedding-2`
+  (3072). Previously it fell back to the generic default of 1536.
+- `kbvc annotate` now shows a clear warning when the target file is not yet
+  staged, making it obvious the reason will only be recorded on the next commit.
+- `kbvc promote` crashed with `argument of type 'PosixPath' is not iterable`
+  because `StagingIndex` was constructed with a raw `Path` argument instead of
+  using `StagingIndex.load()`. Fixed in `commands/promote.py`.
+- `kbvc add ghost.md` (non-existent file) now exits non-zero. Previously it
+  printed "✗ Not found" to stderr but returned exit code 0, hiding errors in
+  scripts and CI.
+
+### Fixed (pass 2 — deep stability audit)
+
+- **CRITICAL** `qdrant.py` `query()` accepted a `filter` argument but
+  silently ignored it — never passing it to `self._client.search()`. The branch
+  isolation fix from pass 1 was therefore a no-op for all Qdrant users. Filter
+  is now converted to a `qdrant_client.models.Filter` and passed as
+  `query_filter`.
+- **CRITICAL** `qdrant.py` `_scroll_by_prefix()` used `MatchValue(value=prefix)`
+  which is an **exact** match, not a prefix match. Since no record has
+  `str_id` exactly equal to the prefix string, every scroll returned 0 results —
+  making `delete_by_prefix()` and `patch_metadata()` complete no-ops. Fixed by
+  removing the broken Qdrant filter and doing all prefix-matching client-side on
+  the scrolled payload.
+- `chroma.py` `delete_by_prefix()` passed `where_document=None` to `col.get()`,
+  which is not a valid ChromaDB API call. Fixed to call `col.get()` with no
+  arguments.
+- `lancedb.py` `patch_metadata()` and `exists_batch()` called `tbl.search()`
+  without a query vector, which crashes in LanceDB (ANN search requires a
+  vector). Both methods now use `tbl.to_pandas()` for full-table access.
+- `lancedb.py` removed the module-level `_SCHEMA_CACHE` dict that was defined
+  but never referenced anywhere in the file.
+- `repo.py` had `KBVC_VERSION = "0.1.2"` hardcoded, so every new repository's
+  `repo.json` reported an old version. Now reads from `kbvc.__version__` at
+  import time.
+- `lock.py` had `KBVC_VERSION = "0.1.0"` hardcoded (four versions behind), so
+  every `kbvc.lock` update recorded a stale version. Now reads from
+  `kbvc.__version__`.
+- `config.py` `_VALID_SECTIONS` was missing `"core"` and `"graph"`. Running
+  `kbvc config set core.format_version 2` or `kbvc config set graph.snapshot_mode
+  full` raised `Unknown config section`. Both sections are now included.
+- `sync.py` volatility tiers were mis-mapped: `slow` included `{"slow","live"}`
+  and `all` was identical to `slow` (making `all` useless). Fixed to:
+  `live` → `{"live"}`, `slow` → `{"slow"}`, `all` → `{"slow","live"}`.
+- `stats.py` `_parse_iso()` returned naive `datetime` objects while `month_start`
+  was timezone-aware, causing `TypeError: can't compare offset-naive and
+  offset-aware datetimes` every time `kbvc stats` was run. Fixed by always
+  attaching `timezone.utc` to parsed datetimes.
+- `commit.py` `KOChange.chunks` field was typed `List[dict] = None` (incorrect
+  for a dataclass — mutable default and wrong `None` default). Fixed to
+  `field(default_factory=list)` with the `__post_init__` removed.
+- `push.py` had a duplicate `from kbvc.core.chunker import ...` statement inside
+  the per-commit loop that shadowed the import already present at function scope.
+
+### Changed (pass 1)
+
+- `[all]` extras now include `google-genai>=0.1` and `sentence-transformers>=2.0`
+  so embedding works out of the box after `pip install kbvc[all]`.
+- `kbvc promote --type` now accepts `finding`, `fact`, `rule`, `decision`, `note`.
+- `_MODEL_DIMS` (backend.py) and `_GEMINI_DIMS` (gemini.py) now include
+  `gemini-embedding-2: 3072`.
+
+---
+
 ## [0.1.2] — 2026-06-03
 
 Stability patch — all bugs discovered during real-world pre-release testing.

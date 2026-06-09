@@ -91,16 +91,28 @@ class PgvectorBackend(VectorDBBackend):
         top_k: int,
         filter: Optional[Dict] = None,
     ) -> List[Dict]:
+        # BUG FIX (v0.1.4): filter arg was accepted but never applied.
+        # Build a WHERE clause from the filter dict so branch isolation works.
+        # Both the legacy (metadata JSONB only) and VSAL schemas store branch
+        # in the JSONB metadata column, so metadata->>'key' = %s works for both.
+        where_clause = ""
+        where_params: list = []
+        if filter:
+            clauses = [f"metadata->>{key!r} = %s" for key in filter]
+            where_clause = "WHERE " + " AND ".join(clauses)
+            where_params = list(filter.values())
+
         with self._conn.cursor() as cur:
             cur.execute(
                 f"""
                 SELECT str_id, metadata,
                        1 - (embedding <=> %s::vector) AS score
                 FROM {collection}
+                {where_clause}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
-                (vector, vector, top_k),
+                (*where_params, vector, vector, top_k),
             )
             rows = cur.fetchall()
         return [

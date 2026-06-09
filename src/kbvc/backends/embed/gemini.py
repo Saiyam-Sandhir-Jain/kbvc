@@ -1,16 +1,13 @@
 # kbvc/backends/embed/gemini.py
 """
-Google Gemini embedding backend — using the new google-genai SDK.
+Google Gemini embedding backend — uses the google-genai SDK.
 
-Supports all Gemini embedding models:
-  - gemini-embedding-001 (3072 dims)
-  - text-embedding-004   (768 dims)
+Supported models:
+  - gemini-embedding-001  (3072 dims)
+  - gemini-embedding-2    (3072 dims)
+  - text-embedding-004    (768 dims)
 
-Note: Uses the new unified google-genai SDK (not deprecated google-generativeai).
-The EmbedContentResponse has `.embeddings` (list[ContentEmbedding]), each with
-`.values` (list[float]).  NOT `.embedding` — that field does not exist.
-
-Bug fixed: response.embedding → response.embeddings[0].values
+Install: pip install kbvc[gemini]   (installs google-genai)
 """
 
 from __future__ import annotations
@@ -21,6 +18,7 @@ from kbvc.backends.embed import EmbedBackend
 
 _GEMINI_DIMS: dict[str, int] = {
     "gemini-embedding-001": 3072,
+    "gemini-embedding-2":   3072,   # alias — same model family, same dims
     "text-embedding-004":   768,
 }
 
@@ -36,8 +34,7 @@ class GeminiEmbedBackend(EmbedBackend):
         except ImportError:
             raise ImportError(
                 "google-genai package not installed.\n"
-                "Run: pip install kbvc[gemini]\n"
-                "(Uses new google-genai SDK, not deprecated google-generativeai)"
+                "Run: pip install kbvc[gemini]"
             )
         self._client = genai.Client(api_key=api_key)
         self._model = model
